@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="it" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ristruttura730 — spese e detrazioni</title>
+  <link rel="stylesheet" href="/static/vendor/pico.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🏠 Ristruttura<span>730</span></div>
+    <nav class="tabs">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="spese">Spese</button>
+      <button data-tab="dich730">730</button>
+      <button data-tab="config">Configurazione</button>
+    </nav>
+    <div class="topbar-right">
+      <select id="sel-anno" title="Anno fiscale"></select>
+      <label class="toggle" title="Se attivo considera solo le spese già pagate">
+        <input type="checkbox" id="chk-solo-pagate"> solo pagate
+      </label>
+      <button id="btn-theme" class="theme-btn" title="Tema chiaro/scuro">🌙</button>
+    </div>
+  </header>
+
+  <main class="container-fluid">
+    <div id="warnings"></div>
+
+    <!-- ===================== DASHBOARD ===================== -->
+    <section id="tab-dashboard" class="tab">
+      <div class="grid-cards" id="dash-caps"></div>
+      <div class="grid-2 dash-main">
+        <div class="dash-col">
+          <article>
+            <h4>Totali</h4>
+            <div id="dash-totali"></div>
+          </article>
+          <article>
+            <h4>Riepilogo per persona</h4>
+            <div id="dash-residui"></div>
+          </article>
+        </div>
+        <div class="dash-col">
+          <article>
+            <h4>Spese per fornitore</h4>
+            <canvas id="chart-fornitori"></canvas>
+          </article>
+          <article>
+            <h4>Da pagare — prossimi 3 mesi</h4>
+            <div id="dash-previste"></div>
+          </article>
+          <article>
+            <h4>Andamento spese (cumulato per mese)</h4>
+            <canvas id="chart-timeline"></canvas>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== SPESE ===================== -->
+    <section id="tab-spese" class="tab" hidden>
+      <article class="form-card">
+        <h4 id="spesa-form-title">Nuova spesa</h4>
+        <form id="form-spesa" class="inline-form">
+          <input type="hidden" id="sp-id">
+          <input type="date" id="sp-data" required title="Data">
+          <select id="sp-fornitore" required title="Fornitore"></select>
+          <input type="number" id="sp-importo" placeholder="Importo €" step="0.01" min="0.01" required>
+          <select id="sp-split" title="Chi paga"></select>
+          <input type="text" id="sp-descrizione" placeholder="Descrizione">
+          <input type="text" id="sp-categoria" placeholder="Categoria (es. bagno)" list="categorie-note">
+          <datalist id="categorie-note"></datalist>
+          <label class="toggle"><input type="checkbox" id="sp-pagata" checked> pagata</label>
+          <label class="toggle" title="Bonifico parlante: la spesa entra nel calcolo dei bonus"><input type="checkbox" id="sp-detraibile"> in detrazione</label>
+          <button type="submit" id="sp-submit">Aggiungi</button>
+          <button type="button" id="bulk-open" class="secondary outline">➕ Aggiunta multipla</button>
+        </form>
+      </article>
+      <article class="form-card" id="bulk-card" hidden>
+        <h4>Aggiunta multipla</h4>
+        <table id="tbl-bulk">
+          <thead><tr>
+            <th>Data</th><th>Fornitore</th><th class="num">Importo €</th><th>Split</th>
+            <th>Descrizione</th><th>Categoria</th><th>Pagata</th><th>In detraz.</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="actions-row">
+          <button id="bulk-add-row" class="secondary outline">+ riga</button>
+          <button id="bulk-save">Salva tutte</button>
+          <button id="bulk-cancel" class="secondary outline">Chiudi</button>
+        </div>
+      </article>
+      <div class="filters">
+        <input type="search" id="flt-testo" placeholder="Cerca…" title="Cerca in descrizione, categoria, fornitore e importo">
+        <select id="flt-fornitore"><option value="">Tutti i fornitori</option></select>
+        <select id="flt-categoria"><option value="">Tutte le categorie</option></select>
+        <select id="flt-stato">
+          <option value="">Pagate e da pagare</option>
+          <option value="1">Solo pagate</option>
+          <option value="0">Solo da pagare</option>
+        </select>
+        <span id="spese-totali" class="muted"></span>
+      </div>
+      <article>
+        <table id="tbl-spese">
+          <thead><tr>
+            <th data-key="data">Data</th><th data-key="supplier_nome">Fornitore</th>
+            <th data-key="bonus_type">Bonus</th><th data-key="descrizione">Descrizione</th>
+            <th data-key="categoria">Categoria</th><th class="num" data-key="importo">Importo</th>
+            <th data-key="split">Split</th><th data-key="pagata">Pagata</th>
+            <th data-key="detraibile" title="Bonifico parlante: entra nel calcolo dei bonus">In detraz.</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </article>
+      <article>
+        <h4>Spese casa per categoria</h4>
+        <div id="spese-per-categoria"></div>
+      </article>
+
+      <!-- ----- fornitori ----- -->
+      <h3>Fornitori</h3>
+      <article class="form-card">
+        <h4>Nuovo fornitore</h4>
+        <form id="form-fornitore" class="inline-form">
+          <input type="text" id="fo-nome" placeholder="Nome fornitore" required>
+          <select id="fo-bonus">
+            <option value="ristrutturazione">Ristrutturazione</option>
+            <option value="ecobonus">Ecobonus</option>
+            <option value="mobili">Bonus mobili</option>
+            <option value="nessuno">Nessun bonus</option>
+          </select>
+          <select id="fo-eco-cat" hidden></select>
+          <button type="submit">Aggiungi</button>
+        </form>
+      </article>
+      <article>
+        <table id="tbl-fornitori">
+          <thead><tr><th>Nome</th><th>Bonus</th><th>Categoria eco</th><th class="num">Totale speso</th><th class="num">di cui pagato</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </article>
+    </section>
+
+    <!-- ===================== 730 ===================== -->
+    <section id="tab-dich730" class="tab" hidden>
+      <div class="actions-row">
+        <a id="btn-caf" role="button" class="secondary outline" href="#">⬇ Export CSV per CAF</a>
+      </div>
+      <div class="grid-2" id="liq-730"></div>
+      <article class="muted small">
+        <strong>Nota:</strong> simulazione indicativa. Le detrazioni sono ripartite in 10 rate annuali;
+        per l'ecobonus ricordare la comunicazione ENEA entro 90 giorni dalla fine lavori.
+        Verificare i valori con CAF/commercialista.
+      </article>
+    </section>
+
+    <!-- ===================== CONFIGURAZIONE ===================== -->
+    <section id="tab-config" class="tab" hidden>
+      <article>
+        <h4>Persone — redditi anno <span class="cfg-anno"></span></h4>
+        <div id="cfg-persone" class="grid-2"></div>
+      </article>
+      <article>
+        <h4>Soglie e aliquote anno <span class="cfg-anno"></span></h4>
+        <form id="form-settings" class="grid-settings"></form>
+      </article>
+      <article>
+        <h4>Rimborsi e rate da anni precedenti</h4>
+        <p class="muted small">Detrazioni di spese di anni passati ancora in corso di dilazione:
+          contribuiscono al rimborso IRPEF e, se la spesa è del 2025 o successiva, consumano il tetto art. 16-ter.</p>
+        <table id="tbl-pregresse">
+          <thead><tr>
+            <th>Persona</th><th>Descrizione</th><th class="num">Importo spesa €</th>
+            <th class="num">Anno spesa</th><th class="num">Totale rate</th><th class="num">Aliquota %</th>
+            <th class="num">Rata detrazione/anno</th><th>16-ter</th><th>Stato</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <form id="form-pregressa" class="inline-form">
+          <select id="pg-persona" required></select>
+          <input type="text" id="pg-descrizione" placeholder="Descrizione (es. ristrutturazione 2023)" required>
+          <input type="number" id="pg-importo" placeholder="Importo spesa €" step="0.01" min="0.01" required>
+          <input type="number" id="pg-anno" placeholder="Anno spesa" min="2000" max="2100" required>
+          <input type="number" id="pg-rate" value="10" min="1" max="30" title="Totale rate">
+          <input type="number" id="pg-aliquota" value="50" min="0" max="110" step="1" title="Aliquota %">
+          <button type="submit">Aggiungi</button>
+        </form>
+      </article>
+      <article>
+        <h4>Categorie ecobonus (massimale di detrazione per unità immobiliare)</h4>
+        <table id="tbl-eco-cat">
+          <thead><tr><th>Nome</th><th class="num">Massimale detrazione €</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <form id="form-eco-cat" class="inline-form">
+          <input type="text" id="ec-nome" placeholder="Nuova categoria" required>
+          <input type="number" id="ec-max" placeholder="Massimale €" step="100">
+          <button type="submit">Aggiungi</button>
+        </form>
+      </article>
+
+      <!-- ----- backup ----- -->
+      <h3>Backup</h3>
+      <article>
+        <h4>Backup completo (JSON)</h4>
+        <p class="muted small">Esporta/ripristina tutto il contenuto: persone, redditi, pregresse, fornitori, spese, soglie.</p>
+        <div class="actions-row">
+          <button id="btn-export" class="secondary outline">⬇ Scarica backup JSON</button>
+          <button id="btn-import" class="secondary outline">⬆ Ripristina da JSON</button>
+          <input type="file" id="file-import" accept=".json" hidden>
+        </div>
+      </article>
+      <article>
+        <h4>Restore point (snapshot del database)</h4>
+        <p class="muted small">Snapshot automatici periodici (ogni 24h, conservati per 5 giorni poi ruotati)
+          più quelli manuali (mai eliminati automaticamente). Il ripristino crea prima uno snapshot di sicurezza.</p>
+        <div class="actions-row">
+          <button id="btn-snapshot">📸 Crea backup ora</button>
+        </div>
+        <table id="tbl-backups">
+          <thead><tr><th>Data</th><th>Tipo</th><th class="num">Dimensione</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </article>
+    </section>
+  </main>
+
+  <div id="toast" hidden></div>
+  <script src="/static/vendor/chart.umd.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

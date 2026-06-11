@@ -1,0 +1,16 @@
+# Quadlet podman — copiare in ~/.config/containers/systemd/ristruttura730.container
+# poi: systemctl --user daemon-reload && systemctl --user start ristruttura730
+[Unit]
+Description=Ristruttura730 - tracker spese ristrutturazione e detrazioni
+
+[Container]
+Image=localhost/ristruttura730:latest
+PublishPort=127.0.0.1:8730:8730
+Volume=%h/.local/share/ristruttura730:/data:Z
+Environment=DB_PATH=/data/app.db
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
