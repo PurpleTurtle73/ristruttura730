@@ -3,10 +3,11 @@ name: container
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
-  group: container-build
+  group: container-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -38,6 +39,16 @@ jobs:
         env:
           OWNER: ${{ github.repository_owner }}
 
+      # push su main -> solo "latest"; tag v1.2.3 -> "latest 1.2.3"
+      - name: Compute image tags
+        id: meta
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tags=latest ${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: redhat-actions/podman-login@v1
         with:
           registry: ghcr.io
@@ -48,7 +59,7 @@ jobs:
         id: build
         with:
           image: ristruttura730
-          tags: latest ${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           containerfiles: deploy/Containerfile
           context: .
 

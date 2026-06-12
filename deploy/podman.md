@@ -1,12 +1,13 @@
 # Deploy con Podman + quadlet
 
-Tre strade, dalla più semplice: build locale, immagine da registry (GitHub Container
-Registry), build automatica con GitHub Actions. In tutti i casi l'esecuzione finale è una
-**quadlet** systemd utente (rootless).
+L'esecuzione finale è sempre una **quadlet** systemd utente (rootless). L'immagine può
+arrivare da una build locale (§1) o dal GitHub Container Registry (§2, consigliato:
+la CI la pubblica da sola, §4).
 
-## 1. Build locale
+Sostituisci `TUOUTENTE` con il tuo utente GitHub **in minuscolo** (i riferimenti OCI non
+accettano maiuscole).
 
-Dalla radice del repository:
+## 1. Build locale (senza registry)
 
 ```bash
 podman build -t ristruttura730 -f deploy/Containerfile .
@@ -21,71 +22,70 @@ podman run --rm -p 127.0.0.1:8730:8730 \
 # -> http://localhost:8730
 ```
 
-## 2. Immagine da registry (ghcr.io)
+Poi vai al §3 lasciando `Image=localhost/ristruttura730:latest` nella quadlet.
 
-Per non ricostruire l'immagine su ogni macchina, pubblicala sul GitHub Container Registry
-del tuo fork (sostituisci `TUOUTENTE` ovunque):
+## 2. Immagine dal registry (ghcr.io)
+
+### 2a. Crea il PAT (una tantum, serve solo se il repo/immagine è privato)
+
+GitHub → Settings → Developer settings → **Personal access tokens (classic)** →
+Generate new token (classic):
+
+- scope: **solo `read:packages`** (il push lo fa la CI col token automatico; least
+  privilege);
+- expiration: una data (es. 90 giorni), non "no expiration";
+- tipo *classic* obbligatorio: il Container Registry non accetta i fine-grained token.
+
+### 2b. Login persistente sulla macchina che eseguirà il container
 
 ```bash
-# login con un Personal Access Token con scope write:packages
-echo "$GITHUB_TOKEN" | podman login ghcr.io -u TUOUTENTE --password-stdin
-
-podman build -t ghcr.io/TUOUTENTE/ristruttura730:latest -f deploy/Containerfile .
-podman push ghcr.io/TUOUTENTE/ristruttura730:latest
+echo "ghp_xxx" | podman login ghcr.io -u TUOUTENTE --password-stdin \
+  --authfile ~/.config/containers/auth.json
+chmod 600 ~/.config/containers/auth.json
 ```
 
-Sulle altre macchine basta `podman pull ghcr.io/TUOUTENTE/ristruttura730:latest`.
-Per rendere l'immagine scaricabile senza login: GitHub → Packages → ristruttura730 →
-Package settings → Change visibility → Public.
+`--authfile` in `~/.config` è obbligatorio per la quadlet: il login di default finisce in
+`XDG_RUNTIME_DIR`, che si svuota al riavvio, e systemd non riuscirebbe più a fare pull.
 
-## 3. Build automatica con GitHub Actions
+### 2c. Pull di verifica
 
-Il workflow è già incluso nel repository: `.github/workflows/container.yml`. Ad ogni push
-su `main` (o lancio manuale dal tab Actions, `workflow_dispatch`):
+```bash
+podman pull ghcr.io/TUOUTENTE/ristruttura730:latest
+```
 
-1. job **test**: installa le dipendenze ed esegue `pytest tests/`;
-2. job **build** (`needs: test`, parte solo a test verdi): build da `deploy/Containerfile`
-   e push su `ghcr.io/TUOUTENTE/ristruttura730` con tag `latest` + SHA del commit.
+Se l'immagine è pubblica (Package settings → Change visibility → Public), i passi 2a/2b
+non servono.
 
-Push consecutivi annullano la build precedente in corso (`concurrency`). L'immagine
-quindi viene pubblicata **solo se i test passano**.
-
-### Repo privato
-
-Il workflow funziona identico (il `GITHUB_TOKEN` automatico basta anche per i repo
-privati). Differenze:
-
-- free tier: 2.000 minuti Actions/mese (questa build ne usa ~2-3) e 500 MB di storage per
-  i package privati — eliminare ogni tanto le versioni SHA vecchie da Package → Settings;
-- l'immagine eredita la visibilità del repo (privata): per il pull dalle proprie macchine
-  serve un PAT classic con scope `read:packages`:
-
-  ```bash
-  echo "ghp_xxx" | podman login ghcr.io -u TUOUTENTE --password-stdin \
-    --authfile ~/.config/containers/auth.json
-  ```
-
-  L'`--authfile` persistente è necessario per la quadlet (il login di default vive in
-  `XDG_RUNTIME_DIR`, che si svuota al riavvio). Nella quadlet aggiungere:
-
-  ```ini
-  Environment=REGISTRY_AUTH_FILE=%h/.config/containers/auth.json
-  ```
-
-## 4. Quadlet (avvio automatico con systemd utente)
+## 3. Quadlet (avvio automatico con systemd utente)
 
 ```bash
 mkdir -p ~/.local/share/ristruttura730 ~/.config/containers/systemd
 cp deploy/ristruttura730.container ~/.config/containers/systemd/
 ```
 
-Se usi il registry, nel file `.container` sostituisci la riga `Image=` con:
+Apri `~/.config/containers/systemd/ristruttura730.container` e sistema le righe in base
+al tuo caso:
 
 ```ini
+[Container]
+# build locale:
+#Image=localhost/ristruttura730:latest
+# registry (immagine pubblica o privata):
 Image=ghcr.io/TUOUTENTE/ristruttura730:latest
+# SOLO per immagine privata: dove trovare le credenziali del §2b
+Environment=REGISTRY_AUTH_FILE=%h/.config/containers/auth.json
+# lato HOST del mapping (dentro al container uvicorn ascolta già su 0.0.0.0):
+# - PublishPort=8730:8730          -> raggiungibile da LAN/VPN (default qui)
+# - PublishPort=127.0.0.1:8730:8730 -> solo dal PC host
+# L'app non ha autenticazione: esporla solo su reti fidate, mai su internet.
+PublishPort=8730:8730
+Volume=%h/.local/share/ristruttura730:/data:Z
+# opzionali:
+#Environment=BACKUP_INTERVAL_HOURS=24
+#Environment=BACKUP_MAX_AGE_DAYS=5
 ```
 
-Poi:
+Attiva:
 
 ```bash
 systemctl --user daemon-reload
@@ -94,26 +94,54 @@ systemctl --user status ristruttura730     # verifica
 journalctl --user -u ristruttura730 -f     # log
 ```
 
-L'app è su <http://localhost:8730>. Per partire al boot anche senza sessione aperta:
+L'app è su `http://IP-DEL-SERVER:8730` (o `http://localhost:8730` dall'host). Se non
+risponde dalla LAN, aprire la porta nel firewall del server — su Fedora/RHEL:
+
+```bash
+sudo firewall-cmd --add-port=8730/tcp --permanent && sudo firewall-cmd --reload
+```
+
+Per l'avvio al boot anche senza login:
 
 ```bash
 loginctl enable-linger $USER
 ```
 
-## Dati e backup
+## 4. Build e push automatici (GitHub Actions)
 
-- Il DB persiste in `~/.local/share/ristruttura730/app.db` (volume `/data`).
-- Gli snapshot automatici sono in `~/.local/share/ristruttura730/backups/`, uno ogni
-  `BACKUP_INTERVAL_HOURS` ore (default 24), ruotati dopo `BACKUP_MAX_AGE_DAYS` giorni
-  (default 5). Le variabili si impostano nella quadlet con righe `Environment=`.
-- Backup completo portabile: tab Configurazione → Backup → "Scarica backup JSON".
+Workflow incluso: `.github/workflows/container.yml`.
 
-## Aggiornamento
+- **push su `main`** → job `test` (pytest) e, solo a test verdi, job `build` che pubblica
+  `ghcr.io/TUOUTENTE/ristruttura730:latest`;
+- **push di un tag `vX.Y.Z`** (es. `v1.0.0`) → stessa pipeline, ma pubblica
+  `:X.Y.Z` **e** aggiorna `:latest`. Per rilasciare una versione:
+
+  ```bash
+  git tag v1.0.0
+  git push origin v1.0.0
+  ```
+
+Free tier repo privato: 2.000 minuti Actions/mese (la pipeline ne usa ~3-4) e 500 MB di
+storage package — eliminare le versioni vecchie da Package → Settings se serve spazio.
+
+Per pushare a mano dal PC (di norma non serve): PAT separato con scope `write:packages`,
+poi `podman build -t ghcr.io/TUOUTENTE/ristruttura730:latest -f deploy/Containerfile . &&
+podman push ghcr.io/TUOUTENTE/ristruttura730:latest`.
+
+## 5. Dati e backup
+
+- DB in `~/.local/share/ristruttura730/app.db` (volume `/data`).
+- Snapshot automatici in `~/.local/share/ristruttura730/backups/`: uno ogni
+  `BACKUP_INTERVAL_HOURS` ore (default 24), eliminati dopo `BACKUP_MAX_AGE_DAYS` giorni
+  (default 5; manuali e prerestore mai toccati).
+- Backup portabile completo: tab Configurazione → Backup → "Scarica backup JSON".
+
+## 6. Aggiornamento
 
 ```bash
-podman pull ghcr.io/TUOUTENTE/ristruttura730:latest   # oppure: podman build ...
+podman pull ghcr.io/TUOUTENTE/ristruttura730:latest   # o :X.Y.Z per bloccare la versione
 systemctl --user restart ristruttura730
 ```
 
-Le migrazioni di schema sono automatiche all'avvio; il ripristino di uno snapshot vecchio
-riapplica le migrazioni da solo.
+Le migrazioni di schema sono automatiche all'avvio; anche il ripristino di uno snapshot
+vecchio le riapplica da solo.

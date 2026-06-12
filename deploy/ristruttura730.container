@@ -1,13 +1,25 @@
 # Quadlet podman — copiare in ~/.config/containers/systemd/ristruttura730.container
 # poi: systemctl --user daemon-reload && systemctl --user start ristruttura730
+# Guida completa: deploy/podman.md
 [Unit]
 Description=Ristruttura730 - tracker spese ristrutturazione e detrazioni
 
 [Container]
+# build locale:
 Image=localhost/ristruttura730:latest
-PublishPort=127.0.0.1:8730:8730
+# oppure dal registry (sostituire TUOUTENTE, minuscolo):
+#Image=ghcr.io/TUOUTENTE/ristruttura730:latest
+# solo per immagine privata: credenziali create con `podman login --authfile` (vedi guida)
+#Environment=REGISTRY_AUTH_FILE=%h/.config/containers/auth.json
+# raggiungibile dalla LAN/VPN (l'app non ha autenticazione: ok solo su reti fidate):
+PublishPort=8730:8730
+# alternativa: solo dal PC host
+#PublishPort=127.0.0.1:8730:8730
 Volume=%h/.local/share/ristruttura730:/data:Z
 Environment=DB_PATH=/data/app.db
+# opzionali (default: 24 e 5)
+#Environment=BACKUP_INTERVAL_HOURS=24
+#Environment=BACKUP_MAX_AGE_DAYS=5
 
 [Service]
 Restart=on-failure

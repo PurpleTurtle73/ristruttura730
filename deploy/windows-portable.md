@@ -3,6 +3,11 @@
 Obiettivo: una cartella autonoma (anche su chiavetta USB), **nessuna installazione, nessun
 privilegio amministratore**: doppio click su `avvia.bat` e si apre il browser sull'app.
 
+> **Build automatica**: il workflow `.github/workflows/windows-portable.yml` produce lo
+> zip da solo. Ad ogni tag `vX.Y.Z` crea la release GitHub e ci allega
+> `ristruttura730-portable-win64.zip`; con "Run workflow" (workflow_dispatch) lo trovi tra
+> gli artifact della run. La procedura manuale qui sotto resta valida se vuoi farlo a mano.
+
 Si usa il **Python embeddable** ufficiale: una distribuzione zip di Python che non tocca il
 registro di Windows e non richiede setup.
 
