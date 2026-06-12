@@ -621,7 +621,10 @@ window.savePerson = async pid => {
 /* ---- rimborsi/rate anni precedenti ---- */
 
 function renderPregresse() {
-  el('pg-persona').innerHTML = state.persons.map(p => `<option value="${p.id}">${p.nome}</option>`).join('');
+  const sel = el('pg-persona');
+  const cur = sel.value; // selezione preservata per l'inserimento seriale
+  sel.innerHTML = state.persons.map(p => `<option value="${p.id}">${p.nome}</option>`).join('');
+  if (cur) sel.value = cur;
   if (!el('pg-anno').value) el('pg-anno').value = state.anno - 1;
 
   el('tbl-pregresse').querySelector('tbody').innerHTML = state.priorDeductions.map(d => {
@@ -817,10 +820,12 @@ function bindEvents() {
       rate_totali: Number(el('pg-rate').value) || 10,
       aliquota: (Number(el('pg-aliquota').value) || 50) / 100,
     });
-    el('form-pregressa').reset();
-    el('pg-rate').value = 10;
-    el('pg-aliquota').value = 50;
+    // inserimento seriale come per le spese: persona/anno/rate/aliquota restano,
+    // descrizione e importo si svuotano, focus sull'importo
+    el('pg-descrizione').value = '';
+    el('pg-importo').value = '';
     await refresh({ global: true });
+    el('pg-importo').focus();
   });
 
   el('btn-snapshot').addEventListener('click', async () => {

@@ -165,9 +165,13 @@ canvas { max-height: 280px; }
 [data-theme=dark] .badge.nessuno { background: #262d37; color: #9aa4b2; }
 [data-theme=dark] .badge.dapagare { background: #3a1418; color: #f87171; }
 
+#form-pregressa { margin-bottom: .8rem; }
 #tbl-pregresse input, #tbl-pregresse select { margin: 0; padding: .25rem .45rem; font-size: .85rem; height: auto; }
-#tbl-pregresse input[type=number] { width: 90px; }
+#tbl-pregresse input[type=number] { width: 85px; text-align: right; }
 #tbl-pregresse td { vertical-align: middle; }
+/* le celle contengono input: header allineati come il contenuto, niente a capo */
+#tbl-pregresse th, #tbl-pregresse th.num, #tbl-pregresse td.num { text-align: left; }
+#tbl-pregresse th { font-size: .78rem; white-space: nowrap; }
 tr.muted td { opacity: .55; }
 
 #toast {

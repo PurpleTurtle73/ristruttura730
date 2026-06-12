@@ -172,23 +172,28 @@
         <h4>Rimborsi e rate da anni precedenti</h4>
         <p class="muted small">Detrazioni di spese di anni passati ancora in corso di dilazione:
           contribuiscono al rimborso IRPEF e, se la spesa è del 2025 o successiva, consumano il tetto art. 16-ter.</p>
-        <table id="tbl-pregresse">
-          <thead><tr>
-            <th>Persona</th><th>Descrizione</th><th class="num">Importo spesa €</th>
-            <th class="num">Anno spesa</th><th class="num">Totale rate</th><th class="num">Aliquota %</th>
-            <th class="num">Rata detrazione/anno</th><th>16-ter</th><th>Stato</th><th></th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
         <form id="form-pregressa" class="inline-form">
           <select id="pg-persona" required></select>
           <input type="text" id="pg-descrizione" placeholder="Descrizione (es. ristrutturazione 2023)" required>
           <input type="number" id="pg-importo" placeholder="Importo spesa €" step="0.01" min="0.01" required>
-          <input type="number" id="pg-anno" placeholder="Anno spesa" min="2000" max="2100" required>
-          <input type="number" id="pg-rate" value="10" min="1" max="30" title="Totale rate">
-          <input type="number" id="pg-aliquota" value="50" min="0" max="110" step="1" title="Aliquota %">
+          <input type="number" id="pg-anno" placeholder="Anno spesa" min="2000" max="2100" required title="Anno del bonifico">
+          <input type="number" id="pg-rate" value="10" min="1" max="30" title="Totale rate (in quanti anni è dilazionata la detrazione)">
+          <input type="number" id="pg-aliquota" value="50" min="0" max="110" step="1" title="Aliquota % del bonus di quell'anno (50 ristrutturazione, 65 vecchio ecobonus…)">
           <button type="submit">Aggiungi</button>
         </form>
+        <table id="tbl-pregresse">
+          <thead><tr>
+            <th>Persona</th><th>Descrizione</th>
+            <th class="num" title="Importo totale pagato all'epoca (la spesa, non la detrazione)">Importo spesa €</th>
+            <th class="num" title="Anno del bonifico: determina la finestra delle rate e il tetto 16-ter (spese dal 2025)">Anno spesa</th>
+            <th class="num" title="In quanti anni è dilazionata la detrazione (10 standard, 5 per alcuni bonus)">Totale rate</th>
+            <th class="num" title="Percentuale di detrazione del bonus di quell'anno: 50 ristrutturazione, 65 vecchio ecobonus, 90/110 superbonus…">Aliquota %</th>
+            <th class="num" title="importo × aliquota ÷ rate: quanto si somma ogni anno alle detrazioni">Rata detrazione/anno</th>
+            <th title="Se la spesa è dal 2025 in poi, la rata consuma il tetto art. 16-ter">16-ter</th>
+            <th title="Attiva se l'anno selezionato cade nella finestra delle rate">Stato</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
       </article>
       <article>
         <h4>Categorie ecobonus (massimale di detrazione per unità immobiliare)</h4>
