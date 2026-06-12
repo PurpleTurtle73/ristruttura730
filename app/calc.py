@@ -220,6 +220,14 @@ def calcola_anno(
         netta = lorda - detrazioni_usate
         saldo = ritenute - netta  # >0 rimborso, <0 debito
 
+        # recupero EFFETTIVO in 10 anni: ogni anno la rata è fruibile solo entro la
+        # capienza IRPEF residua dopo le pregresse (stima a redditi costanti).
+        # Con reddito non impostato (0) si mostra il teorico, come per il warning incapienza.
+        if reddito > 0:
+            rata_effettiva = min(rata_detrazione, max(0.0, lorda - pregresse))
+        else:
+            rata_effettiva = rata_detrazione
+
         # residuo fatturabile: vincolo unità immobiliare + vincoli personali
         residuo_unita_ristr = max(0.0, settings.tetto_ristrutturazione - tot_ristr)
         residuo_unita_mobili = max(0.0, settings.tetto_mobili - tot_mobili)
@@ -247,6 +255,7 @@ def calcola_anno(
             "rata_detrazione": round(rata_detrazione, 2),
             "rata_detrazione_breakdown": rata_breakdown,
             "detrazione_decennale": round(detrazione_decennale, 2),
+            "detrazione_decennale_effettiva": round(rata_effettiva * RATE_ANNUALI, 2),
             "detrazioni_pregresse": round(pregresse, 2),
             "irpef_lorda": lorda,
             "detrazioni_usate": round(detrazioni_usate, 2),

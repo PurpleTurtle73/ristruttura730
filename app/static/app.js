@@ -184,16 +184,18 @@ function renderDashboard() {
   }
   el('dash-caps').innerHTML = html;
 
-  // card Totali
+  // card Totali — valori POST tetti fiscali, non somme grezze
   const spesaTotale = visibleExpenses().reduce((s, e) => s + e.importo, 0);
-  const ecoTot = Object.values(r.ecobonus).reduce((s, c) =>
-    s + Object.values(c.per_persona).reduce((x, p) => x + p.spesa, 0), 0);
-  const spesaDetraibile = r.ristrutturazione.totale + r.mobili.totale + ecoTot;
-  const recupero10y = Object.values(r.persone).reduce((s, p) => s + p.detrazione_decennale, 0);
+  const ecoDet = Object.values(r.ecobonus).reduce((s, c) => s + detrDi(c.per_persona), 0);
+  const spesaDetraibile = detrDi(r.ristrutturazione.per_persona) + detrDi(r.mobili.per_persona) + ecoDet;
+  const recupero10y = Object.values(r.persone).reduce((s, p) => s + p.detrazione_decennale_effettiva, 0);
+  const recuperoTeorico = Object.values(r.persone).reduce((s, p) => s + p.detrazione_decennale, 0);
+  const incap10y = recuperoTeorico - recupero10y;
   el('dash-totali').innerHTML = `<div class="cap-card">
     <div class="sub">Spesa totale: <strong class="big">${eur2(spesaTotale)}</strong></div>
     <div class="sub">Spesa detraibile: <strong>${eur2(spesaDetraibile)}</strong></div>
-    <div class="sub">Recupero in 10 anni: <strong class="saldo-pos">${eur2(recupero10y)}</strong></div>
+    <div class="sub">Recupero in 10 anni: <strong class="saldo-pos">${eur2(recupero10y)}</strong>${incap10y > 0.005
+      ? ` <span class="muted">(teorico ${eur2(recuperoTeorico)}, persi per incapienza ${eur2(incap10y)})</span>` : ''}</div>
   </div>`;
 
   // torta fornitori
@@ -273,7 +275,9 @@ function renderDashboard() {
       ${riga('Ecobonus già fatturato', eur2(ecoSpesa))}
       ${riga('Ecobonus ancora fatturabile', eur(ecoRes), ecoSenzaMassimale ? ' <span class="muted">(+ categorie senza massimale)</span>' : '')}
       <hr class="riga-sep">
-      ${riga('Recupero in 10 anni', eur2(p.detrazione_decennale))}
+      ${riga('Recupero in 10 anni', eur2(p.detrazione_decennale_effettiva),
+        p.detrazione_decennale - p.detrazione_decennale_effettiva > 0.005
+          ? ` <span class="muted">(teorico ${eur2(p.detrazione_decennale)})</span>` : '')}
       <div class="sub">${p.saldo_730 >= 0 ? 'Rimborso' : 'Debito'} netto 730 stimato: <strong class="${p.saldo_730 >= 0 ? 'saldo-pos' : 'saldo-neg'}">${eur2(Math.abs(p.saldo_730))}</strong></div>
     </div>`;
   }).join('');
@@ -556,6 +560,8 @@ function render730() {
         <tr><td>Tetto art. 16-ter (rata annua di spesa)</td><td class="num">${eur2(p.cap_16ter)}</td></tr>
         <tr><td>· Rata di spesa soggetta al tetto${p.pregresse_16ter_spesa ? ` (di cui pregresse ${eur2(p.pregresse_16ter_spesa)})` : ''}</td><td class="num">${eur2(p.rata_spesa_16ter)}</td></tr>` : ''}
         <tr><td>Detrazione totale (10 anni)</td><td class="num">${eur2(p.detrazione_decennale)}</td></tr>
+        ${p.detrazione_decennale - p.detrazione_decennale_effettiva > 0.005 ? `
+        <tr><td>· di cui recuperabile (capienza IRPEF)</td><td class="num">${eur2(p.detrazione_decennale_effettiva)}</td></tr>` : ''}
         <tr><td><strong>Rata detrazione anno ${state.anno}</strong></td><td class="num"><strong>${eur2(p.rata_detrazione)}</strong></td></tr>
         <tr><td>Detrazioni da anni precedenti</td><td class="num">${eur2(p.detrazioni_pregresse)}</td></tr>
         <tr><td>Detrazioni effettivamente usate</td><td class="num">${eur2(p.detrazioni_usate)}</td></tr>

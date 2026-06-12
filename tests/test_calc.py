@@ -216,3 +216,66 @@ def test_flag_detraibile_esclude_dai_bonus():
     r = run([e, spesa(20_000)])
     assert r["ristrutturazione"]["totale"] == 20_000.0
     assert r["persone"][1]["spese"]["non_detraibili"] == 5_000.0
+
+
+def _detraibile_tot(alloc):
+    return sum(v["detraibile"] for v in alloc.values())
+
+
+def test_tetti_mai_superati_con_mix_detraibili_e_non():
+    """Sforamento di tutti i tetti con mix detraibili/non: il detraibile resta ai limiti."""
+    non_detr = spesa(50_000)
+    non_detr["detraibile"] = False
+    r = run([
+        spesa(150_000),                          # ristrutturazione, oltre 96k
+        non_detr,                                # non conta per i bonus
+        spesa(9_000, bonus="mobili"),            # oltre 5k
+        spesa(200_000, bonus="ecobonus", eco_cat=1),  # oltre tetto spesa 120k (60k/0.5)
+        spesa(7_000, bonus="nessuno"),
+    ])
+    assert _detraibile_tot(r["ristrutturazione"]["per_persona"]) == pytest.approx(96_000.0)
+    assert _detraibile_tot(r["mobili"]["per_persona"]) == pytest.approx(5_000.0)
+    assert _detraibile_tot(r["ecobonus"][1]["per_persona"]) == pytest.approx(120_000.0)
+    # i totali grezzi invece riportano la spesa intera (servono per "quanto ho speso")
+    assert r["ristrutturazione"]["totale"] == 150_000.0
+    assert r["mobili"]["totale"] == 9_000.0
+    # recupero teorico complessivo = somma dei detraibili x aliquota, mai oltre
+    teorico = sum(p["detrazione_decennale"] for p in r["persone"].values())
+    assert teorico <= (96_000 + 5_000 + 120_000) * 0.5 + 0.01
+    # la "spesa detraibile" della dashboard (somma dei campi detraibile) è ai tetti
+    spesa_det = (
+        _detraibile_tot(r["ristrutturazione"]["per_persona"])
+        + _detraibile_tot(r["mobili"]["per_persona"])
+        + _detraibile_tot(r["ecobonus"][1]["per_persona"])
+    )
+    assert spesa_det == pytest.approx(221_000.0)
+
+
+def test_detrazione_decennale_effettiva_limitata_da_capienza():
+    py = {1: {"reddito": 9_000, "ritenute": 2_000, "detrazioni_pregresse": 0}}
+    # lorda 2070; rata teorica 4800 -> effettiva 2070/anno
+    r = run([spesa(96_000, split=1)], person_years=py)
+    p = r["persone"][1]
+    assert p["detrazione_decennale"] == pytest.approx(48_000.0)
+    assert p["detrazione_decennale_effettiva"] == pytest.approx(20_700.0)
+
+
+def test_detrazione_decennale_effettiva_con_pregresse():
+    py = {1: {"reddito": 9_000, "ritenute": 2_000, "detrazioni_pregresse": 1_000}}
+    # lorda 2070; le pregresse hanno priorità -> per le spese correnti restano 1070/anno
+    r = run([spesa(96_000, split=1)], person_years=py)
+    assert r["persone"][1]["detrazione_decennale_effettiva"] == pytest.approx(10_700.0)
+
+
+def test_detrazione_decennale_effettiva_capienza_ampia():
+    py = {1: {"reddito": 40_000, "ritenute": 11_000, "detrazioni_pregresse": 0}}
+    r = run([spesa(20_000, split=1)], person_years=py)
+    p = r["persone"][1]
+    assert p["detrazione_decennale_effettiva"] == p["detrazione_decennale"]
+
+
+def test_detrazione_decennale_effettiva_reddito_non_impostato():
+    # senza reddito non si può stimare la capienza: si mostra il teorico (come il warning)
+    r = run([spesa(20_000, split=1)])
+    p = r["persone"][1]
+    assert p["detrazione_decennale_effettiva"] == p["detrazione_decennale"]
