@@ -40,40 +40,15 @@ Package settings → Change visibility → Public.
 
 ## 3. Build automatica con GitHub Actions
 
-Crea `.github/workflows/container.yml` nel repository:
+Il workflow è già incluso nel repository: `.github/workflows/container.yml`. Ad ogni push
+su `main` (o lancio manuale dal tab Actions, `workflow_dispatch`):
 
-```yaml
-name: container
-on:
-  push:
-    branches: [main]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: redhat-actions/podman-login@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: redhat-actions/buildah-build@v2
-        id: build
-        with:
-          image: ghcr.io/${{ github.repository_owner }}/ristruttura730
-          tags: latest ${{ github.sha }}
-          containerfiles: deploy/Containerfile
-      - uses: redhat-actions/push-to-registry@v2
-        with:
-          image: ${{ steps.build.outputs.image }}
-          tags: ${{ steps.build.outputs.tags }}
-```
+1. job **test**: installa le dipendenze ed esegue `pytest tests/`;
+2. job **build** (`needs: test`, parte solo a test verdi): build da `deploy/Containerfile`
+   e push su `ghcr.io/TUOUTENTE/ristruttura730` con tag `latest` + SHA del commit.
 
-Ogni push su `main` pubblica `ghcr.io/TUOUTENTE/ristruttura730:latest`.
-Il workflow è già incluso nel repository: `.github/workflows/container.yml`.
+Push consecutivi annullano la build precedente in corso (`concurrency`). L'immagine
+quindi viene pubblicata **solo se i test passano**.
 
 ### Repo privato
 
