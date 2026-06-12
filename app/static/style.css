@@ -29,6 +29,7 @@ body { margin: 0; background: #f4f5f7; }
 [data-theme=dark] .tabs button.active { background: #2563eb; color: #fff; }
 .topbar-right { display: flex; align-items: center; gap: .8rem; }
 .topbar-right select { margin: 0; width: auto; padding: .3rem 2rem .3rem .6rem; }
+.app-version { font-size: .7rem; color: #999; white-space: nowrap; }
 .toggle { display: flex; align-items: center; gap: .35rem; margin: 0; font-size: .85rem; white-space: nowrap; }
 .toggle input { margin: 0; }
 

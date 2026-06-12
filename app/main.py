@@ -20,6 +20,19 @@ from .calc import YearSettings, calcola_anno
 STATIC = Path(__file__).parent / "static"
 
 
+def _versione() -> str:
+    """Da env APP_VERSION (container) o VERSION.txt accanto ad app/ (portable)."""
+    v = os.environ.get("APP_VERSION", "").strip()
+    if not v:
+        vf = Path(__file__).parent.parent / "VERSION.txt"
+        if vf.exists():
+            v = vf.read_text(encoding="utf-8").strip()
+    return v or "dev"
+
+
+APP_VERSION = _versione()
+
+
 async def _backup_loop(hours: float) -> None:
     while True:
         try:
@@ -60,7 +73,15 @@ def index():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     for asset in ("/static/app.js", "/static/style.css"):
         html = html.replace(asset, f"{asset}?v={v}")
+    ver = f"v{APP_VERSION}" if APP_VERSION[0].isdigit() else APP_VERSION
+    html = html.replace("__APP_VERSION__", ver)
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    # i browser la chiedono alla radice ignorando il <link> nell'HTML
+    return FileResponse(STATIC / "favicon.ico")
 
 
 # ---------- persone ----------
@@ -357,7 +378,7 @@ def health():
     """Healthcheck per container/monitoring: verifica app e accesso al DB."""
     with db.connect() as conn:
         conn.execute("SELECT 1")
-    return {"status": "ok"}
+    return {"status": "ok", "version": APP_VERSION}
 
 
 @app.get("/api/years")
