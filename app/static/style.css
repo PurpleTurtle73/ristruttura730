@@ -89,6 +89,15 @@ table { font-size: .9rem; margin: 0; }
 th.num, td.num { text-align: right; }
 td .icon-btn { background: none; border: none; cursor: pointer; padding: .1rem .3rem; margin: 0; width: auto; font-size: .95rem; }
 tr.da-pagare td { color: #92400e; }
+/* spese con data futura: sfondo azzurrino */
+tr.futura td { background: #eff6ff; }
+tr.futura .data-txt { color: #1d4ed8; font-weight: 600; }
+[data-theme=dark] tr.futura td { background: #14233f; }
+[data-theme=dark] tr.futura .data-txt { color: #93c5fd; }
+/* data come testo "31 dic 2025": il click apre il picker dell'input nascosto */
+.cell-data { position: relative; white-space: nowrap; }
+.cell-data .data-txt { cursor: pointer; }
+.cell-data input[type=date] { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; margin: 0; }
 .badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 600; white-space: nowrap; }
 .badge.ristrutturazione { background: #dbeafe; color: #1d4ed8; }
 .badge.ecobonus { background: #dcfce7; color: #15803d; }

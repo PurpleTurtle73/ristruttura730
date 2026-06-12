@@ -329,6 +329,9 @@ function renderPreviste() {
 
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
+const MESI_BREVI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+const fmtData = iso => iso ? `${Number(iso.slice(8, 10))} ${MESI_BREVI[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '';
+
 function renderSpese() {
   // opzioni form (preserva la selezione per l'inserimento seriale)
   const keepVal = (id, html) => { const s = el(id); const v = s.value; s.innerHTML = html; if (v) s.value = v; };
@@ -378,9 +381,14 @@ function renderSpese() {
   const splitOpts = sel => `<option value="50_50" ${sel === '50_50' ? 'selected' : ''}>50/50</option>` +
     state.persons.map(p => `<option value="${p.id}" ${String(p.id) === String(sel) ? 'selected' : ''}>solo ${p.nome}</option>`).join('');
 
+  const oggi = new Date().toISOString().slice(0, 10);
   el('tbl-spese').querySelector('tbody').innerHTML = rows.map(e => `
-    <tr class="${e.pagata ? '' : 'da-pagare'}">
-      <td data-l="Data"><input type="date" value="${e.data}" onchange="saveExpInline(${e.id},'data',this.value)"></td>
+    <tr class="${e.pagata ? '' : 'da-pagare'}${e.data > oggi ? ' futura' : ''}">
+      <td data-l="Data" class="cell-data">
+        <span class="data-txt" title="Click per modificare la data"
+          onclick="const i = this.nextElementSibling; i.showPicker ? i.showPicker() : i.focus()">${fmtData(e.data)}</span>
+        <input type="date" value="${e.data}" tabindex="-1" onchange="saveExpInline(${e.id},'data',this.value)">
+      </td>
       <td data-l="Fornitore"><select onchange="saveExpInline(${e.id},'supplier_id',Number(this.value))">${fornOpts(e.supplier_id)}</select></td>
       <td data-l="Bonus"><select class="badge-sel ${e.bonus_type}" onchange="saveExpInline(${e.id},'bonus_override',this.value)" title="Bonus per questa spesa (default: quello del fornitore)">
         ${['ristrutturazione', 'ecobonus', 'mobili', 'nessuno'].map(b =>
