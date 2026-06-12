@@ -9,11 +9,14 @@ concurrency:
   group: container-build
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
@@ -27,7 +30,13 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # i riferimenti OCI devono essere minuscoli; github.repository_owner può non esserlo
+      - name: Lowercase owner
+        run: echo "OWNER_LC=${OWNER,,}" >> "$GITHUB_ENV"
+        env:
+          OWNER: ${{ github.repository_owner }}
 
       - uses: redhat-actions/podman-login@v1
         with:
@@ -38,7 +47,7 @@ jobs:
       - uses: redhat-actions/buildah-build@v2
         id: build
         with:
-          image: ghcr.io/${{ github.repository_owner }}/ristruttura730
+          image: ristruttura730
           tags: latest ${{ github.sha }}
           containerfiles: deploy/Containerfile
           context: .
@@ -47,3 +56,4 @@ jobs:
         with:
           image: ${{ steps.build.outputs.image }}
           tags: ${{ steps.build.outputs.tags }}
+          registry: ghcr.io/${{ env.OWNER_LC }}
