@@ -26,7 +26,16 @@ Poi vai al §3 lasciando `Image=localhost/ristruttura730:latest` nella quadlet.
 
 ## 2. Immagine dal registry (ghcr.io)
 
-### 2a. Crea il PAT (una tantum, serve solo se il repo/immagine è privato)
+**Immagine pubblica** (Package settings → Change visibility → Public — la visibilità del
+package è separata da quella del repo!): nessuna autenticazione, basta
+
+```bash
+podman pull ghcr.io/TUOUTENTE/ristruttura730:latest
+```
+
+e puoi saltare al §3. I passi 2a/2b servono **solo per immagini private**.
+
+### 2a. Crea il PAT (una tantum, solo immagine privata)
 
 GitHub → Settings → Developer settings → **Personal access tokens (classic)** →
 Generate new token (classic):
@@ -52,9 +61,6 @@ chmod 600 ~/.config/containers/auth.json
 ```bash
 podman pull ghcr.io/TUOUTENTE/ristruttura730:latest
 ```
-
-Se l'immagine è pubblica (Package settings → Change visibility → Public), i passi 2a/2b
-non servono.
 
 ## 3. Quadlet (avvio automatico con systemd utente)
 
@@ -121,13 +127,6 @@ Workflow incluso: `.github/workflows/container.yml`.
   git push origin v1.0.0
   ```
 
-Free tier repo privato: 2.000 minuti Actions/mese (la pipeline ne usa ~3-4) e 500 MB di
-storage package — eliminare le versioni vecchie da Package → Settings se serve spazio.
-
-Per pushare a mano dal PC (di norma non serve): PAT separato con scope `write:packages`,
-poi `podman build -t ghcr.io/TUOUTENTE/ristruttura730:latest -f deploy/Containerfile . &&
-podman push ghcr.io/TUOUTENTE/ristruttura730:latest`.
-
 ## 5. Dati e backup
 
 - DB in `~/.local/share/ristruttura730/app.db` (volume `/data`).
@@ -141,6 +140,13 @@ podman push ghcr.io/TUOUTENTE/ristruttura730:latest`.
 ```bash
 podman pull ghcr.io/TUOUTENTE/ristruttura730:latest   # o :X.Y.Z per bloccare la versione
 systemctl --user restart ristruttura730
+```
+
+Automatico: con `AutoUpdate=registry` nella sezione `[Container]` della quadlet, il timer
+di podman controlla il registry e riavvia il container quando l'immagine taggata cambia:
+
+```bash
+systemctl --user enable --now podman-auto-update.timer
 ```
 
 Le migrazioni di schema sono automatiche all'avvio; anche il ripristino di uno snapshot

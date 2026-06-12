@@ -94,3 +94,7 @@ PLAN.md       # piano completo per ricostruire l'applicazione da zero
 
 Nessuna dipendenza frontend da CDN: Chart.js e Pico.css sono vendorizzati in
 `app/static/vendor/`, l'app funziona offline.
+
+## Licenza
+
+[MIT](LICENSE).
