@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ristruttura730 — spese e detrazioni</title>
+  <meta name="theme-color" content="#2563eb">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="stylesheet" href="/static/vendor/pico.min.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -105,7 +109,7 @@
         <span id="spese-totali" class="muted"></span>
       </div>
       <article>
-        <table id="tbl-spese">
+        <table id="tbl-spese" class="responsive-tbl">
           <thead><tr>
             <th data-key="data">Data</th><th data-key="supplier_nome">Fornitore</th>
             <th data-key="bonus_type">Bonus</th><th data-key="descrizione">Descrizione</th>
@@ -138,7 +142,7 @@
         </form>
       </article>
       <article>
-        <table id="tbl-fornitori">
+        <table id="tbl-fornitori" class="responsive-tbl">
           <thead><tr><th>Nome</th><th>Bonus</th><th>Categoria eco</th><th class="num">Totale speso</th><th class="num">di cui pagato</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
@@ -181,7 +185,7 @@
           <input type="number" id="pg-aliquota" value="50" min="0" max="110" step="1" title="Aliquota % del bonus di quell'anno (50 ristrutturazione, 65 vecchio ecobonus…)">
           <button type="submit">Aggiungi</button>
         </form>
-        <table id="tbl-pregresse">
+        <table id="tbl-pregresse" class="responsive-tbl">
           <thead><tr>
             <th>Persona</th><th>Descrizione</th>
             <th class="num" title="Importo totale pagato all'epoca (la spesa, non la detrazione)">Importo spesa €</th>
@@ -226,7 +230,7 @@
         <div class="actions-row">
           <button id="btn-snapshot">📸 Crea backup ora</button>
         </div>
-        <table id="tbl-backups">
+        <table id="tbl-backups" class="responsive-tbl">
           <thead><tr><th>Data</th><th>Tipo</th><th class="num">Dimensione</th><th></th></tr></thead>
           <tbody></tbody>
         </table>

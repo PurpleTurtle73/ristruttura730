@@ -208,7 +208,7 @@ function renderDashboard() {
     },
     options: {
       plugins: {
-        legend: { position: 'right' },
+        legend: { position: window.innerWidth < 700 ? 'bottom' : 'right' },
         tooltip: { callbacks: { label: c => `${c.label}: ${eur2(c.parsed)}` } },
       },
     },
@@ -376,19 +376,21 @@ function renderSpese() {
 
   el('tbl-spese').querySelector('tbody').innerHTML = rows.map(e => `
     <tr class="${e.pagata ? '' : 'da-pagare'}">
-      <td><input type="date" value="${e.data}" onchange="saveExpInline(${e.id},'data',this.value)"></td>
-      <td><select onchange="saveExpInline(${e.id},'supplier_id',Number(this.value))">${fornOpts(e.supplier_id)}</select></td>
-      <td><select class="badge-sel ${e.bonus_type}" onchange="saveExpInline(${e.id},'bonus_override',this.value)" title="Bonus per questa spesa (default: quello del fornitore)">
+      <td data-l="Data"><input type="date" value="${e.data}" onchange="saveExpInline(${e.id},'data',this.value)"></td>
+      <td data-l="Fornitore"><select onchange="saveExpInline(${e.id},'supplier_id',Number(this.value))">${fornOpts(e.supplier_id)}</select></td>
+      <td data-l="Bonus"><select class="badge-sel ${e.bonus_type}" onchange="saveExpInline(${e.id},'bonus_override',this.value)" title="Bonus per questa spesa (default: quello del fornitore)">
         ${['ristrutturazione', 'ecobonus', 'mobili', 'nessuno'].map(b =>
           `<option value="${b}" ${e.bonus_type === b ? 'selected' : ''}>${b}</option>`).join('')}
       </select></td>
-      <td><input type="text" value="${esc(e.descrizione)}" onchange="saveExpInline(${e.id},'descrizione',this.value)"></td>
-      <td><input type="text" value="${esc(e.categoria)}" list="categorie-note" onchange="saveExpInline(${e.id},'categoria',this.value)"></td>
-      <td class="num"><input type="number" step="0.01" min="0.01" value="${e.importo}" onchange="saveExpInline(${e.id},'importo',Number(this.value))"></td>
-      <td><select onchange="saveExpInline(${e.id},'split',this.value)">${splitOpts(e.split)}</select></td>
-      <td><span class="badge clickable ${e.pagata ? 'pagata' : 'off'}" onclick="saveExpInline(${e.id},'pagata',${!e.pagata})" title="Click per cambiare stato">pagata</span></td>
-      <td><span class="badge clickable ${e.detraibile ? 'detraibile' : 'off'}" onclick="saveExpInline(${e.id},'detraibile',${!e.detraibile})" title="Bonifico parlante: click per cambiare">detraibile</span></td>
-      <td>
+      <td data-l="Descrizione"><input type="text" value="${esc(e.descrizione)}" onchange="saveExpInline(${e.id},'descrizione',this.value)"></td>
+      <td data-l="Categoria"><input type="text" value="${esc(e.categoria)}" list="categorie-note" onchange="saveExpInline(${e.id},'categoria',this.value)"></td>
+      <td class="num" data-l="Importo €"><input type="number" step="0.01" min="0.01" value="${e.importo}" onchange="saveExpInline(${e.id},'importo',Number(this.value))"></td>
+      <td data-l="Split"><select onchange="saveExpInline(${e.id},'split',this.value)">${splitOpts(e.split)}</select></td>
+      <td class="cell-badges">
+        <span class="badge clickable ${e.pagata ? 'pagata' : 'off'}" onclick="saveExpInline(${e.id},'pagata',${!e.pagata})" title="Click per cambiare stato">pagata</span></td>
+      <td class="cell-badges">
+        <span class="badge clickable ${e.detraibile ? 'detraibile' : 'off'}" onclick="saveExpInline(${e.id},'detraibile',${!e.detraibile})" title="Bonifico parlante: click per cambiare">detraibile</span></td>
+      <td class="cell-actions">
         <button class="icon-btn" onclick="duplicateExpense(${e.id})" title="Duplica">⧉</button>
         <button class="icon-btn" onclick="deleteExpense(${e.id})" title="Elimina">🗑️</button>
       </td>
@@ -504,12 +506,12 @@ function renderFornitori() {
   el('tbl-fornitori').querySelector('tbody').innerHTML = state.suppliers.map(s => {
     const cat = state.ecoCats.find(c => c.id === s.eco_category_id);
     return `<tr>
-      <td>${s.nome}</td>
-      <td><span class="badge ${s.bonus_type}">${s.bonus_type}</span></td>
-      <td>${cat ? cat.nome : ''}</td>
-      <td class="num">${eur2(tot[s.id] || 0)}</td>
-      <td class="num">${eur2(pag[s.id] || 0)}</td>
-      <td>
+      <td data-l="Nome">${s.nome}</td>
+      <td class="cell-badges"><span class="badge ${s.bonus_type}">${s.bonus_type}</span></td>
+      <td data-l="Categoria eco">${cat ? cat.nome : ''}</td>
+      <td class="num" data-l="Totale speso">${eur2(tot[s.id] || 0)}</td>
+      <td class="num" data-l="di cui pagato">${eur2(pag[s.id] || 0)}</td>
+      <td class="cell-actions">
         <button class="icon-btn" onclick="editSupplier(${s.id})" title="Modifica">✏️</button>
         <button class="icon-btn" onclick="deleteSupplier(${s.id})" title="Elimina">🗑️</button>
       </td>
@@ -636,16 +638,16 @@ function renderPregresse() {
     const persSel = state.persons.map(p =>
       `<option value="${p.id}" ${p.id === d.person_id ? 'selected' : ''}>${p.nome}</option>`).join('');
     return `<tr class="${attiva ? '' : 'muted'}">
-      <td><select onchange="savePregressa(${d.id}, 'person_id', this.value)">${persSel}</select></td>
-      <td><input type="text" value="${d.descrizione}" onchange="savePregressa(${d.id}, 'descrizione', this.value)"></td>
-      <td class="num"><input type="number" step="0.01" value="${d.importo_spesa}" onchange="savePregressa(${d.id}, 'importo_spesa', this.value)"></td>
-      <td class="num"><input type="number" value="${d.anno_spesa}" onchange="savePregressa(${d.id}, 'anno_spesa', this.value)"></td>
-      <td class="num"><input type="number" min="1" value="${d.rate_totali}" onchange="savePregressa(${d.id}, 'rate_totali', this.value)"></td>
-      <td class="num"><input type="number" step="1" value="${Math.round(d.aliquota * 100)}" onchange="savePregressa(${d.id}, 'aliquota', this.value / 100)"></td>
-      <td class="num">${eur2(rata)}</td>
-      <td>${sedici ? '⚠️ sì' : 'no'}</td>
-      <td>${attiva ? `<span class="badge pagata">attiva (${primo + 1}–${ultimo})</span>` : `<span class="badge nessuno">non attiva nel ${state.anno}</span>`}</td>
-      <td><button class="icon-btn" onclick="deletePregressa(${d.id})" title="Elimina">🗑️</button></td>
+      <td data-l="Persona"><select onchange="savePregressa(${d.id}, 'person_id', this.value)">${persSel}</select></td>
+      <td data-l="Descrizione"><input type="text" value="${d.descrizione}" onchange="savePregressa(${d.id}, 'descrizione', this.value)"></td>
+      <td class="num" data-l="Importo spesa €"><input type="number" step="0.01" value="${d.importo_spesa}" onchange="savePregressa(${d.id}, 'importo_spesa', this.value)"></td>
+      <td class="num" data-l="Anno spesa"><input type="number" value="${d.anno_spesa}" onchange="savePregressa(${d.id}, 'anno_spesa', this.value)"></td>
+      <td class="num" data-l="Totale rate"><input type="number" min="1" value="${d.rate_totali}" onchange="savePregressa(${d.id}, 'rate_totali', this.value)"></td>
+      <td class="num" data-l="Aliquota %"><input type="number" step="1" value="${Math.round(d.aliquota * 100)}" onchange="savePregressa(${d.id}, 'aliquota', this.value / 100)"></td>
+      <td class="num" data-l="Rata detrazione/anno">${eur2(rata)}</td>
+      <td data-l="16-ter">${sedici ? '⚠️ sì' : 'no'}</td>
+      <td class="cell-badges">${attiva ? `<span class="badge pagata">attiva (${primo + 1}–${ultimo})</span>` : `<span class="badge nessuno">non attiva nel ${state.anno}</span>`}</td>
+      <td class="cell-actions"><button class="icon-btn" onclick="deletePregressa(${d.id})" title="Elimina">🗑️</button></td>
     </tr>`;
   }).join('');
 }
@@ -671,10 +673,10 @@ async function renderBackups() {
   const backups = await api('GET', '/api/backups');
   el('tbl-backups').querySelector('tbody').innerHTML = backups.map(b => `
     <tr>
-      <td>${b.mtime.replace('T', ' ')}</td>
-      <td><span class="badge ${b.tag === 'auto' ? 'nessuno' : b.tag === 'manuale' ? 'ristrutturazione' : 'mobili'}">${b.tag}</span></td>
-      <td class="num">${fmtSize(b.size)}</td>
-      <td>
+      <td data-l="Data">${b.mtime.replace('T', ' ')}</td>
+      <td class="cell-badges"><span class="badge ${b.tag === 'auto' ? 'nessuno' : b.tag === 'manuale' ? 'ristrutturazione' : 'mobili'}">${b.tag}</span></td>
+      <td class="num" data-l="Dimensione">${fmtSize(b.size)}</td>
+      <td class="cell-actions">
         <button class="icon-btn" onclick="restoreBackup('${b.name}')" title="Ripristina questo snapshot">♻️</button>
         <a class="icon-btn" href="/api/backups/${b.name}/download" title="Scarica">⬇️</a>
         <button class="icon-btn" onclick="deleteBackup('${b.name}')" title="Elimina">🗑️</button>

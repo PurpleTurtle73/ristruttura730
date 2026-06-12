@@ -114,6 +114,58 @@ tr.da-pagare td { color: #92400e; }
 
 canvas { max-height: 280px; }
 
+/* ===================== mobile ===================== */
+@media (max-width: 700px) {
+  main { padding: .6rem; }
+  .topbar { padding: .5rem .6rem; gap: .5rem; }
+  .brand { font-size: 1rem; }
+  .tabs { order: 3; flex-basis: 100%; overflow-x: auto; gap: .2rem; padding-bottom: .15rem; }
+  .tabs button { padding: .4rem .7rem; font-size: .85rem; white-space: nowrap; }
+  .topbar-right { margin-left: auto; }
+
+  /* form impilati a tutta larghezza, comodi col pollice */
+  .inline-form input, .inline-form select, .inline-form button,
+  .inline-form input[type=text], .inline-form input[type=number] {
+    flex: 1 1 100%; width: 100%;
+  }
+  .inline-form .toggle { flex: 1 1 45%; }
+  .filters input[type=search] { width: 100%; }
+  .grid-settings { grid-template-columns: 1fr 1fr; }
+
+  /* touch target più grandi */
+  .icon-btn { font-size: 1.15rem; padding: .3rem .5rem; }
+  .badge { padding: .25rem .7rem; }
+
+  /* tabelle -> card: una riga = una scheda verticale */
+  .responsive-tbl thead { display: none; }
+  .responsive-tbl, .responsive-tbl tbody, .responsive-tbl tr, .responsive-tbl td {
+    display: block; width: 100%;
+  }
+  .responsive-tbl tr {
+    border: 1px solid #e3e6ea; border-radius: 10px;
+    padding: .5rem .7rem; margin-bottom: .6rem; background: var(--pico-card-background-color, #fff);
+  }
+  [data-theme=dark] .responsive-tbl tr { border-color: #262d37; }
+  .responsive-tbl td {
+    display: flex; justify-content: space-between; align-items: center; gap: .6rem;
+    border: none; padding: .2rem 0; text-align: left;
+  }
+  .responsive-tbl td[data-l]::before {
+    content: attr(data-l);
+    font-size: .72rem; color: #888; flex: 0 0 auto; text-transform: uppercase; letter-spacing: .02em;
+  }
+  .responsive-tbl td input, .responsive-tbl td select { width: auto; max-width: 60%; flex: 1 1 auto; }
+  .responsive-tbl td.cell-badges { justify-content: flex-start; }
+  .responsive-tbl td.cell-actions { justify-content: flex-end; gap: 1rem; }
+  #tbl-spese input[type=date] { width: auto; }
+
+  /* la griglia bulk resta tabellare: meglio lo scroll della verticalizzazione */
+  #bulk-card { overflow-x: auto; }
+
+  canvas { max-height: 240px; }
+  #warnings { width: calc(100vw - 1.6rem); right: .8rem; }
+}
+
 .prev-mese { margin: .8rem 0 .3rem; font-size: .85rem; text-transform: capitalize; color: #444; }
 [data-theme=dark] .prev-mese { color: #c2c9d2; }
 .prev-tbl { font-size: .85rem; }
