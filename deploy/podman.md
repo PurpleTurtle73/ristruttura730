@@ -73,6 +73,29 @@ jobs:
 ```
 
 Ogni push su `main` pubblica `ghcr.io/TUOUTENTE/ristruttura730:latest`.
+Il workflow è già incluso nel repository: `.github/workflows/container.yml`.
+
+### Repo privato
+
+Il workflow funziona identico (il `GITHUB_TOKEN` automatico basta anche per i repo
+privati). Differenze:
+
+- free tier: 2.000 minuti Actions/mese (questa build ne usa ~2-3) e 500 MB di storage per
+  i package privati — eliminare ogni tanto le versioni SHA vecchie da Package → Settings;
+- l'immagine eredita la visibilità del repo (privata): per il pull dalle proprie macchine
+  serve un PAT classic con scope `read:packages`:
+
+  ```bash
+  echo "ghp_xxx" | podman login ghcr.io -u TUOUTENTE --password-stdin \
+    --authfile ~/.config/containers/auth.json
+  ```
+
+  L'`--authfile` persistente è necessario per la quadlet (il login di default vive in
+  `XDG_RUNTIME_DIR`, che si svuota al riavvio). Nella quadlet aggiungere:
+
+  ```ini
+  Environment=REGISTRY_AUTH_FILE=%h/.config/containers/auth.json
+  ```
 
 ## 4. Quadlet (avvio automatico con systemd utente)
 
