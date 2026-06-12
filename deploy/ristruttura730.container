@@ -20,6 +20,12 @@ Environment=DB_PATH=/data/app.db
 # opzionali (default: 24 e 5)
 #Environment=BACKUP_INTERVAL_HOURS=24
 #Environment=BACKUP_MAX_AGE_DAYS=5
+# Health check
+HealthCmd=/bin/sh -c 'curl -f http://localhost:8730/api/health'
+HealthStartPeriod=30s
+HealthInterval=10s
+HealthTimeout=10s
+HealthRetries=120
 
 [Service]
 Restart=always
