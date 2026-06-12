@@ -21,11 +21,14 @@ Environment=DB_PATH=/data/app.db
 #Environment=BACKUP_INTERVAL_HOURS=24
 #Environment=BACKUP_MAX_AGE_DAYS=5
 # Health check
-HealthCmd=/bin/sh -c 'curl -f http://localhost:8730/api/health'
-HealthStartPeriod=30s
-HealthInterval=10s
-HealthTimeout=10s
-HealthRetries=120
+# si usa la stdlib python. Sovrascrive l'HEALTHCHECK dell'immagine.
+HealthCmd=python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8730/api/health', timeout=4)"
+HealthStartPeriod=10s
+HealthInterval=60s
+HealthTimeout=5s
+HealthRetries=3
+# se unhealthy, systemd uccide il container e Restart=always lo ricrea
+HealthOnFailure=kill
 
 [Service]
 Restart=always

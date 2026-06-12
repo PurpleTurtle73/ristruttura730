@@ -87,7 +87,14 @@ Environment=REGISTRY_AUTH_FILE=%h/.config/containers/auth.json
 PublishPort=8730:8730
 Volume=%h/.local/share/ristruttura730:/data:Z
 # healthcheck: è definito nell'immagine (GET /api/health, verifica anche il DB);
-# con questa riga, dopo 3 fallimenti il container viene ucciso e systemd lo riavvia
+# ridichiararlo qui con HealthCmd lo rende visibile/gestibile anche da Cockpit.
+# Niente curl nell'immagine slim: si usa la stdlib python.
+HealthCmd=python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8730/api/health', timeout=4)"
+HealthStartPeriod=10s
+HealthInterval=60s
+HealthTimeout=5s
+HealthRetries=3
+# dopo 3 fallimenti il container viene ucciso e systemd lo riavvia
 HealthOnFailure=kill
 # opzionali:
 #Environment=BACKUP_INTERVAL_HOURS=24
