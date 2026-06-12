@@ -146,6 +146,10 @@ canvas { max-height: 280px; }
   .icon-btn { font-size: 1.15rem; padding: .3rem .5rem; }
   .badge { padding: .25rem .7rem; }
 
+  /* card tetti (visibili in ogni tab): striscia orizzontale scorrevole, non pila */
+  .grid-cards { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: .25rem; }
+  .grid-cards .cap-card { flex: 0 0 82%; scroll-snap-align: start; }
+
   /* tabelle -> card: una riga = una scheda verticale */
   .responsive-tbl thead { display: none; }
   .responsive-tbl, .responsive-tbl tbody, .responsive-tbl tr, .responsive-tbl td {
