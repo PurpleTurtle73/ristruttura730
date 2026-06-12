@@ -24,8 +24,10 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m pytest tests/ -v
 
+  # l'immagine si pubblica solo sui tag v* (o lancio manuale); su main girano solo i test
   build:
     needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,7 +41,7 @@ jobs:
         env:
           OWNER: ${{ github.repository_owner }}
 
-      # push su main -> solo "latest"; tag v1.2.3 -> "latest 1.2.3"
+      # tag v1.2.3 -> "latest 1.2.3"; lancio manuale -> solo "latest"
       # version: mostrata nella UI e in /api/health (X.Y.Z sui tag, main-<sha> altrimenti)
       - name: Compute image tags
         id: meta

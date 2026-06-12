@@ -129,10 +129,12 @@ loginctl enable-linger $USER
 
 Workflow incluso: `.github/workflows/container.yml`.
 
-- **push su `main`** → job `test` (pytest) e, solo a test verdi, job `build` che pubblica
-  `ghcr.io/TUOUTENTE/ristruttura730:latest`;
-- **push di un tag `vX.Y.Z`** (es. `v1.0.0`) → stessa pipeline, ma pubblica
-  `:X.Y.Z` **e** aggiorna `:latest`. Per rilasciare una versione:
+- **push su `main`** → solo job `test` (pytest), nessuna immagine pubblicata;
+- **push di un tag `vX.Y.Z`** (es. `v1.0.0`) → test e, solo a test verdi, job `build`
+  che pubblica `ghcr.io/TUOUTENTE/ristruttura730:X.Y.Z` **e** aggiorna `:latest`;
+- **lancio manuale** (workflow_dispatch) → pubblica `:latest` con versione `main-<sha>`.
+
+Per rilasciare una versione:
 
   ```bash
   git tag v1.0.0
