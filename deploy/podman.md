@@ -86,6 +86,9 @@ Environment=REGISTRY_AUTH_FILE=%h/.config/containers/auth.json
 # L'app non ha autenticazione: esporla solo su reti fidate, mai su internet.
 PublishPort=8730:8730
 Volume=%h/.local/share/ristruttura730:/data:Z
+# healthcheck: è definito nell'immagine (GET /api/health, verifica anche il DB);
+# con questa riga, dopo 3 fallimenti il container viene ucciso e systemd lo riavvia
+HealthOnFailure=kill
 # opzionali:
 #Environment=BACKUP_INTERVAL_HOURS=24
 #Environment=BACKUP_MAX_AGE_DAYS=5
@@ -98,6 +101,8 @@ systemctl --user daemon-reload
 systemctl --user start ristruttura730
 systemctl --user status ristruttura730     # verifica
 journalctl --user -u ristruttura730 -f     # log
+podman ps                                  # colonna STATUS: "(healthy)" dopo ~10s
+podman healthcheck run ristruttura730      # esegue il check a mano (exit 0 = ok)
 ```
 
 L'app è su `http://IP-DEL-SERVER:8730` (o `http://localhost:8730` dall'host). Se non

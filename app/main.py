@@ -352,6 +352,14 @@ def put_settings(anno: int, body: dict = Body(...)):
 
 # ---------- report / 730 ----------
 
+@app.get("/api/health")
+def health():
+    """Healthcheck per container/monitoring: verifica app e accesso al DB."""
+    with db.connect() as conn:
+        conn.execute("SELECT 1")
+    return {"status": "ok"}
+
+
 @app.get("/api/years")
 def get_years():
     with db.connect() as conn:
