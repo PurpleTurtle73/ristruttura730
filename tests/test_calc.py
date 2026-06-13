@@ -279,3 +279,113 @@ def test_detrazione_decennale_effettiva_reddito_non_impostato():
     r = run([spesa(20_000, split=1)])
     p = r["persone"][1]
     assert p["detrazione_decennale_effettiva"] == p["detrazione_decennale"]
+
+
+# --- valori mostrati dalle card della dashboard (logica replicata dal frontend) ---
+
+
+def _card_bonus(spesa_categoria, detraibile, tetto, aliquota):
+    """Replica capCard() del frontend: ritorna le voci mostrate."""
+    residuo = max(0.0, tetto - detraibile)
+    return {
+        "spesa_categoria": spesa_categoria,
+        "spesa_categoria_rossa": spesa_categoria > tetto + 0.005,
+        "detraibile": detraibile,
+        "detraibile_al_tetto": detraibile >= tetto - 0.005,
+        "residuo": residuo,
+        "residuo_pct": residuo / tetto if tetto else 0.0,
+        "residuo_zero": residuo <= 0.005,
+        "recupero": detraibile * aliquota,
+        "recupero_pct": (detraibile * aliquota) / spesa_categoria if spesa_categoria else 0.0,
+        "utilizzo": min(1.0, detraibile / tetto) if tetto else 0.0,
+    }
+
+
+def test_card_bonus_sotto_e_sopra_tetto():
+    aliq = 0.5
+    # ristrutturazione: 40k detraibili + 30k non detraibili -> categoria 70k, detraibile 40k
+    sotto = _card_bonus(70_000, 40_000, 96_000, aliq)
+    assert not sotto["spesa_categoria_rossa"]
+    assert not sotto["detraibile_al_tetto"]
+    assert sotto["residuo"] == 56_000
+    assert sotto["recupero"] == 20_000  # 40k * 50%
+    assert sotto["recupero_pct"] == pytest.approx(20_000 / 70_000)
+    assert sotto["utilizzo"] == pytest.approx(40_000 / 96_000)
+
+    # categoria oltre il cap (anche per soli non detraibili): solo la prima voce è rossa
+    over_cat = _card_bonus(120_000, 80_000, 96_000, aliq)
+    assert over_cat["spesa_categoria_rossa"]
+    assert not over_cat["detraibile_al_tetto"]
+    assert not over_cat["residuo_zero"]
+
+    # detraibile al tetto: detraibile, residuo e barra al limite
+    pieno = _card_bonus(150_000, 96_000, 96_000, aliq)
+    assert pieno["detraibile_al_tetto"]
+    assert pieno["residuo"] == 0 and pieno["residuo_zero"]
+    assert pieno["utilizzo"] == 1.0
+    assert pieno["recupero"] == 48_000
+
+
+def test_card_dashboard_da_report_reale():
+    """Le voci delle card derivano dai campi del report del motore."""
+    non_detr = spesa(30_000)        # ristrutturazione non detraibile
+    non_detr["detraibile"] = False
+    expenses = [
+        spesa(64_000),                              # ristrutturazione detraibile
+        non_detr,                                   # gonfia la "spesa di categoria"
+        spesa(7_000, bonus="ecobonus", eco_cat=1),  # eco detraibile
+    ]
+    r = run(expenses)
+    aliq = r["aliquota"]
+
+    # spesa di categoria = somma grezza per bonus (incl. non detraibili), come nel frontend
+    lordo_ristr = sum(e["importo"] for e in expenses if e["bonus_type"] == "ristrutturazione")
+    ristr = _card_bonus(lordo_ristr, _detraibile_tot(r["ristrutturazione"]["per_persona"]),
+                        r["ristrutturazione"]["tetto"], aliq)
+    assert ristr["spesa_categoria"] == 94_000          # 64k + 30k non detraibile
+    assert ristr["detraibile"] == 64_000               # solo i detraibili, sotto i 96k
+    assert ristr["recupero"] == 32_000
+    assert not ristr["spesa_categoria_rossa"]
+
+    eco = _card_bonus(7_000, _detraibile_tot(r["ecobonus"][1]["per_persona"]),
+                      r["ecobonus"][1]["tetto_spesa"], aliq)
+    assert eco["detraibile"] == 7_000
+    assert eco["recupero"] == 3_500
+
+    # Riepilogo appartamento
+    spesa_totale = sum(e["importo"] for e in expenses)
+    spesa_detraibile = sum(e["importo"] for e in expenses if e.get("detraibile", True))
+    # recupero EFFETTIVO = somma delle detrazioni decennali effettive (qui senza
+    # redditi impostati = nessun taglio 16-ter/capienza, quindi pari al lordo)
+    recupero_10y = sum(p["detrazione_decennale_effettiva"] for p in r["persone"].values())
+    recupero_lordo = ristr["recupero"] + eco["recupero"]
+    assert spesa_totale == 101_000
+    assert spesa_detraibile == 71_000                  # raw flag, non tagliato ai tetti
+    assert recupero_lordo == 35_500
+    assert recupero_10y == pytest.approx(35_500)       # senza redditi: effettivo = lordo
+
+
+def test_riepilogo_recupero_effettivo_ridotto_da_capienza():
+    """Con reddito basso il 'Recupero in 10 anni' del Riepilogo scende sotto il lordo."""
+    py = {1: {"reddito": 9_000, "ritenute": 2_000}}    # lorda 2070/anno
+    r = run([spesa(96_000, split=1)], person_years=py)
+    p = r["persone"][1]
+    recupero_lordo = _detraibile_tot(r["ristrutturazione"]["per_persona"]) * r["aliquota"]
+    recupero_eff = sum(x["detrazione_decennale_effettiva"] for x in r["persone"].values())
+    assert recupero_lordo == 48_000                     # somma card
+    assert recupero_eff == pytest.approx(20_700)        # tagliato dalla capienza IRPEF
+    assert recupero_eff < recupero_lordo
+
+
+def test_card_16ter():
+    """Card 16-ter: rata annua di spesa vs cap personale, residuo e utilizzo (opposto)."""
+    py = {2: {"reddito": 120_000, "ritenute": 30_000}}  # cap 4000
+    r = run([spesa(70_000, split=2)], person_years=py)   # rata = 70k/10 = 7000 > 4000
+    p = r["persone"][2]
+    cap, rata = p["cap_16ter"], p["rata_spesa_16ter"]
+    assert cap == 4_000 and rata == 7_000
+    spesa_mostrata = min(rata, cap)
+    residuo = max(0.0, cap - rata)
+    assert spesa_mostrata == 4_000          # tagliata al cap, rossa
+    assert residuo == 0                      # residuo zero
+    assert min(1.0, rata / cap) == 1.0       # barra utilizzo piena
