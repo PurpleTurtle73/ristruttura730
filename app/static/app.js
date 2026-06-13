@@ -134,22 +134,50 @@ window.dismissWarning = i => {
 
 /* ---- dashboard ---- */
 
-function capCard(titolo, spesoTotale, spesaRilevante, detraibile, tetto, aliquota, extra = '') {
-  // spesoTotale: tutte le spese del bonus (anche non detraibili) — solo display
-  // spesaRilevante: quelle col flag detraibile, consumano il tetto
-  const ratio = tetto ? spesaRilevante / tetto : 0;
-  const over = ratio > 1;
+// Card di un bonus (tetto sull'unità immobiliare).
+//   spesaCategoria: somma di TUTTE le spese del bonus (anche non detraibili)
+//   detraibile: somma delle spese del bonus col flag detraibile, già tagliata al tetto
+function capCard(titolo, spesaCategoria, detraibile, tetto, aliquota, extra = '') {
+  const EPS = 0.005;
+  const residuo = Math.max(0, tetto - detraibile);
+  const pctResiduo = tetto > 0 ? residuo / tetto : 0;
   const recupero = detraibile * aliquota;
-  const pctRec = spesoTotale > 0 ? recupero / spesoTotale : 0;
-  const residuo = Math.max(0, tetto - spesaRilevante);
+  const pctRecupero = spesaCategoria > 0 ? recupero / spesaCategoria : 0;
+  const utilizzo = tetto > 0 ? Math.min(1, detraibile / tetto) : 0;
+  const catOver = spesaCategoria > tetto + EPS;   // spesa di categoria oltre il cap
+  const detrFull = detraibile >= tetto - EPS;     // detraibile al tetto
+  const residuoZero = residuo <= EPS;
+  const aliqPct = pct(aliquota);
   return `<div class="cap-card">
-    <h5>${titolo}</h5>
-    <div class="big">Spesa totale ${eur(spesoTotale)}</div>
-    <div class="sub">Spesa detraibile <strong>${eur(detraibile)}</strong> / max ${eur(tetto)}${extra}</div>
-    <div class="sub">Residuo detraibile <strong class="${over ? 'saldo-neg' : ''}">${eur(residuo)}</strong> · ${pct(Math.min(1, ratio))}</div>
-    <div class="sub">Recupero <strong>${eur(recupero)}</strong> · ${pct(pctRec)} del totale speso</div>
-    <div class="sub" style="margin-top:.4rem">Capienza Rimborso</div>
-    <div class="bar"><div class="${over ? 'over' : ''}" style="width:${Math.min(100, ratio * 100)}%"></div></div>
+    <h5 title="Limiti del bonus sull'unità immobiliare (condivisi tra i comproprietari)">${titolo}</h5>
+    <div class="big ${catOver ? 'saldo-neg' : ''}" title="Somma di tutte le spese con questo bonus, detraibili e non. Rosso se supera il tetto.">Spesa di categoria ${eur(spesaCategoria)}</div>
+    <div class="sub" title="Solo le spese col flag detraibile (bonifico parlante), tagliate al tetto dell'unità. Rosso quando tocca il tetto.">↳ Di cui detraibile <strong class="${detrFull ? 'saldo-neg' : ''}">${eur(detraibile)}</strong> / ${eur(tetto)}${extra}</div>
+    <div class="sub" title="Tetto − detraibile: quanto puoi ancora fatturare in detrazione. Rosso a zero.">Residuo detraibile <strong class="${residuoZero ? 'saldo-neg' : ''}">${eur(residuo)}</strong> · ${pct(pctResiduo)}</div>
+    <div class="sub" title="${aliqPct} della spesa detraibile (detrazione totale in 10 anni). La % è sul totale della spesa di categoria.">Recupero con Bonus <strong>${eur(recupero)}</strong> · ${pct(pctRecupero)} della spesa</div>
+    <div class="sub" style="margin-top:.4rem" title="Quota di tetto già consumata dalle spese detraibili">Utilizzo incentivo</div>
+    <div class="bar"><div class="${detrFull ? 'over' : ''}" style="width:${utilizzo * 100}%"></div></div>
+  </div>`;
+}
+
+// Card del tetto art. 16-ter (per persona, sulla rata annua di spesa).
+function cap16terCard(p) {
+  const EPS = 0.005;
+  const cap = p.cap_16ter;
+  const spesa = p.rata_spesa_16ter;                 // rata annua soggetta al tetto
+  const spesaShown = Math.min(spesa, cap);
+  const residuo = Math.max(0, cap - spesa);
+  const pctResiduo = cap > 0 ? residuo / cap : 0;
+  const utilizzo = cap > 0 ? Math.min(1, spesa / cap) : 0;
+  const full = spesa >= cap - EPS;
+  const residuoZero = residuo <= EPS;
+  const pregr = p.pregresse_16ter_spesa
+    ? ` <span class="muted">(di cui pregresse ${eur(p.pregresse_16ter_spesa)})</span>` : '';
+  return `<div class="cap-card">
+    <h5 title="Reddito > 75k: la rata annua di spesa detraibile (spesa/10) è limitata. Cap personale, non per unità.">Tetto 16-ter — ${p.nome}</h5>
+    <div class="big ${full ? 'saldo-neg' : ''}" title="Somma delle quote annue di spesa detraibile di tutti i bonus (rata = spesa/10), incl. rate da anni precedenti dal 2025. Tagliata al tetto, rossa al raggiungimento.">Spesa detraibile ${eur(spesaShown)} / ${eur(cap)}${pregr}</div>
+    <div class="sub" title="Tetto − spesa: quanta rata annua di spesa detraibile puoi ancora aggiungere. Rosso a zero.">Residuo detraibile <strong class="${residuoZero ? 'saldo-neg' : ''}">${eur(residuo)}</strong> · ${pct(pctResiduo)}</div>
+    <div class="sub" style="margin-top:.4rem" title="Quota di tetto già consumata (opposto del residuo)">Utilizzo detraibilità</div>
+    <div class="bar"><div class="${full ? 'over' : ''}" style="width:${utilizzo * 100}%"></div></div>
   </div>`;
 }
 
@@ -166,37 +194,39 @@ function renderDashboard() {
   }
 
   const detrDi = alloc => Object.values(alloc).reduce((s, x) => s + x.detraibile, 0);
-  let html = capCard(`Ristrutturazione ${r.anno}`, lordoRistr, r.ristrutturazione.totale,
-    detrDi(r.ristrutturazione.per_persona), r.ristrutturazione.tetto, r.aliquota);
-  html += capCard('Bonus mobili', lordoMobili, r.mobili.totale,
-    detrDi(r.mobili.per_persona), r.mobili.tetto, r.aliquota);
+  const detrRistr = detrDi(r.ristrutturazione.per_persona);
+  const detrMobili = detrDi(r.mobili.per_persona);
+  let bonusHtml = capCard('Bonus Ristrutturazione', lordoRistr, detrRistr, r.ristrutturazione.tetto, r.aliquota);
+  bonusHtml += capCard('Bonus Mobili', lordoMobili, detrMobili, r.mobili.tetto, r.aliquota);
+  let detrEco = 0;
   for (const [cid, cat] of Object.entries(r.ecobonus)) {
-    const tot = Object.values(cat.per_persona).reduce((s, p) => s + p.spesa, 0);
-    if (cat.tetto_spesa) html += capCard(`Eco — ${cat.nome}`, lordoEcoCat[cid] || tot, tot,
-      detrDi(cat.per_persona), cat.tetto_spesa, r.aliquota, ` · detr. max ${eur(cat.massimale_detrazione)}`);
+    if (!cat.tetto_spesa) continue;
+    const det = detrDi(cat.per_persona);
+    detrEco += det;
+    bonusHtml += capCard(`Ecobonus — ${cat.nome}`, lordoEcoCat[cid] || 0, det, cat.tetto_spesa, r.aliquota,
+      ` <span class="muted">(detr. max ${eur(cat.massimale_detrazione)})</span>`);
   }
   for (const p of Object.values(r.persone)) {
-    if (p.cap_16ter != null) {
-      html += capCard(`Tetto 16-ter — ${p.nome} (rata annua)`, p.rata_spesa_16ter, p.rata_spesa_16ter,
-        Math.min(p.rata_spesa_16ter, p.cap_16ter), p.cap_16ter, r.aliquota,
-        p.pregresse_16ter_spesa ? ` · di cui pregresse ${eur(p.pregresse_16ter_spesa)}` : '');
-    }
+    if (p.cap_16ter != null) bonusHtml += cap16terCard(p);
   }
-  el('dash-caps').innerHTML = html;
 
-  // card Totali — valori POST tetti fiscali, non somme grezze
+  // card Riepilogo appartamento (in testa alla striscia, sempre visibile)
   const spesaTotale = visibleExpenses().reduce((s, e) => s + e.importo, 0);
-  const ecoDet = Object.values(r.ecobonus).reduce((s, c) => s + detrDi(c.per_persona), 0);
-  const spesaDetraibile = detrDi(r.ristrutturazione.per_persona) + detrDi(r.mobili.per_persona) + ecoDet;
+  const spesaDetraibile = visibleExpenses().filter(e => e.detraibile).reduce((s, e) => s + e.importo, 0);
+  // recupero EFFETTIVO: detrazione decennale già ridotta da tetti unità, 16-ter e capienza IRPEF
   const recupero10y = Object.values(r.persone).reduce((s, p) => s + p.detrazione_decennale_effettiva, 0);
-  const recuperoTeorico = Object.values(r.persone).reduce((s, p) => s + p.detrazione_decennale, 0);
-  const incap10y = recuperoTeorico - recupero10y;
-  el('dash-totali').innerHTML = `<div class="cap-card">
-    <div class="sub">Spesa totale: <strong class="big">${eur2(spesaTotale)}</strong></div>
-    <div class="sub">Spesa detraibile: <strong>${eur2(spesaDetraibile)}</strong></div>
-    <div class="sub">Recupero in 10 anni: <strong class="saldo-pos">${eur2(recupero10y)}</strong>${incap10y > 0.005
-      ? ` <span class="muted">(teorico ${eur2(recuperoTeorico)}, persi per incapienza ${eur2(incap10y)})</span>` : ''}</div>
+  const recuperoLordo = (detrRistr + detrMobili + detrEco) * r.aliquota; // somma dei "Recupero con Bonus"
+  const perso = recuperoLordo - recupero10y;
+  const riepilogoHtml = `<div class="cap-card">
+    <h5 title="Sintesi dell'intero appartamento per l'anno selezionato">Riepilogo appartamento</h5>
+    <div class="big" title="Somma di tutte le spese, di qualsiasi bonus e a prescindere dalla detraibilità">${eur2(spesaTotale)}</div>
+    <div class="sub" title="Somma di tutte le spese, di qualsiasi bonus e a prescindere dalla detraibilità">Spesa totale</div>
+    <div class="sub" title="Somma delle spese col flag detraibile, di qualsiasi bonus (non ancora tagliata ai tetti)">Spesa detraibile: <strong>${eur2(spesaDetraibile)}</strong></div>
+    <div class="sub" title="Detrazione effettivamente recuperabile in 10 anni: somma dei 'Recupero con Bonus' ridotta dal tetto 16-ter e dalla capienza IRPEF di ciascuna persona (a redditi costanti).">Recupero in 10 anni: <strong class="saldo-pos">${eur2(recupero10y)}</strong>${perso > 0.005
+      ? ` <span class="muted">(lordo ${eur2(recuperoLordo)}, persi ${eur2(perso)})</span>` : ''}</div>
   </div>`;
+
+  el('dash-caps').innerHTML = riepilogoHtml + bonusHtml;
 
   // torta fornitori
   const PALETTE = ['#2563eb', '#16a34a', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#0ea5e9', '#dc2626', '#64748b'];
@@ -260,25 +290,33 @@ function renderDashboard() {
     const head = p.residuo_fatturabile.headroom_personale;
     const ecoRes = head != null ? Math.min(ecoResUnit, head) : ecoResUnit;
     const maxFruibile = Math.min(p.cap_16ter != null ? p.cap_16ter * r.aliquota : Infinity, p.irpef_lorda);
-    const riga = (k, v, extra = '') => `<div class="sub">${k}: <strong>${v}</strong>${extra}</div>`;
+    const riga = (k, v, extra = '', tip = '') => `<div class="sub"${tip ? ` title="${tip}"` : ''}>${k}: <strong>${v}</strong>${extra}</div>`;
     return `<div class="cap-card" style="margin-bottom:.7rem">
-      <h5>${p.nome}</h5>
-      ${p.cap_16ter != null ? riga('Tetto annuo spese detraibili (art. 16-ter)', eur2(p.cap_16ter)) : ''}
+      <h5 title="Vincoli e risultato fiscale di ${p.nome} per l'anno selezionato">${p.nome}</h5>
+      ${p.cap_16ter != null ? riga('Tetto annuo spese detraibili (art. 16-ter)', eur2(p.cap_16ter), '',
+        'Reddito > 75k: massimo di rata annua di spesa detraibile (spesa/10) ammessa nell\'anno. Cap personale.') : ''}
       <hr class="riga-sep">
-      ${riga('Capienza IRPEF annua', eur2(p.irpef_lorda))}
-      ${riga('Detrazione massima fruibile/anno', eur2(maxFruibile))}
+      ${riga('Capienza IRPEF annua', eur2(p.irpef_lorda), '',
+        'IRPEF lorda dell\'anno: è il tetto massimo di detrazioni che si possono usare; l\'eccedenza è persa.')}
+      ${riga('Detrazione massima fruibile/anno', eur2(maxFruibile), '',
+        'Il minore tra capienza IRPEF e (se applicabile) il tetto 16-ter convertito in detrazione (cap × aliquota).')}
       <hr class="riga-sep">
-      ${riga('Ristrutturazione già fatturato', eur2(p.spese.ristrutturazione.spesa))}
-      ${riga('Ristrutturazione ancora fatturabile', eur(p.residuo_fatturabile.ristrutturazione))}
-      ${riga('Mobili già fatturato', eur2(p.spese.mobili.spesa))}
-      ${riga('Mobili ancora fatturabile', eur(p.residuo_fatturabile.mobili))}
-      ${riga('Ecobonus già fatturato', eur2(ecoSpesa))}
-      ${riga('Ecobonus ancora fatturabile', eur(ecoRes), ecoSenzaMassimale ? ' <span class="muted">(+ categorie senza massimale)</span>' : '')}
+      ${riga('Ristrutturazione già fatturato', eur2(p.spese.ristrutturazione.spesa), '',
+        'Quota di spesa ristrutturazione già intestata a questa persona (50/50 o singola).')}
+      ${riga('Ristrutturazione ancora fatturabile', eur(p.residuo_fatturabile.ristrutturazione), '',
+        'Quanto puoi ancora farti fatturare restando entro il tetto dell\'unità (96k) e i limiti personali.')}
+      ${riga('Mobili già fatturato', eur2(p.spese.mobili.spesa), '', 'Quota di spesa bonus mobili di questa persona.')}
+      ${riga('Mobili ancora fatturabile', eur(p.residuo_fatturabile.mobili), '',
+        'Spazio residuo entro il tetto mobili (5k) e i limiti personali.')}
+      ${riga('Ecobonus già fatturato', eur2(ecoSpesa), '', 'Quota di spesa ecobonus di questa persona.')}
+      ${riga('Ecobonus ancora fatturabile', eur(ecoRes), ecoSenzaMassimale ? ' <span class="muted">(+ categorie senza massimale)</span>' : '',
+        'Spazio residuo entro i massimali eco delle categorie e i limiti personali.')}
       <hr class="riga-sep">
       ${riga('Recupero in 10 anni', eur2(p.detrazione_decennale_effettiva),
         p.detrazione_decennale - p.detrazione_decennale_effettiva > 0.005
-          ? ` <span class="muted">(teorico ${eur2(p.detrazione_decennale)})</span>` : '')}
-      <div class="sub">${p.saldo_730 >= 0 ? 'Rimborso' : 'Debito'} netto 730 stimato: <strong class="${p.saldo_730 >= 0 ? 'saldo-pos' : 'saldo-neg'}">${eur2(Math.abs(p.saldo_730))}</strong></div>
+          ? ` <span class="muted">(teorico ${eur2(p.detrazione_decennale)})</span>` : '',
+        'Detrazione effettiva sui 10 anni (a redditi costanti), già ridotta da 16-ter e capienza IRPEF. Il teorico ignora la capienza.')}
+      <div class="sub" title="Conguaglio del 730 di un singolo anno: ritenute del sostituto − IRPEF netta (lorda meno la rata di detrazione dell'anno e le pregresse). Positivo = rimborso, negativo = da versare. Riguarda solo l'anno, non i 10 anni di detrazione.">${p.saldo_730 >= 0 ? 'Rimborso' : 'Debito'} 730 annuo stimato: <strong class="${p.saldo_730 >= 0 ? 'saldo-pos' : 'saldo-neg'}">${eur2(Math.abs(p.saldo_730))}</strong></div>
     </div>`;
   }).join('');
 }
