@@ -638,6 +638,35 @@ const dateToIso = d => d.toISOString().slice(0, 10);
 const addDays = (iso, n) => dateToIso(new Date(isoToDate(iso).getTime() + n * 86400000));
 const dayDiff = (a, b) => Math.round((isoToDate(b).getTime() - isoToDate(a).getTime()) / 86400000);
 const parsePreds = s => String(s || '').split(',').map(x => parseInt(x, 10)).filter(n => Number.isFinite(n));
+// colore testo leggibile sulla barra: stessa tinta del fondo ma luminosità opposta
+// (fondo scuro -> testo chiaro stessa tinta; fondo chiaro -> testo scuro stessa tinta)
+function hexToHsl(hex) {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let hue = 0;
+  if (d) {
+    if (max === r) hue = ((g - b) / d) % 6;
+    else if (max === g) hue = (b - r) / d + 2;
+    else hue = (r - g) / d + 4;
+    hue *= 60; if (hue < 0) hue += 360;
+  }
+  const l = (max + min) / 2;
+  const s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+  return { h: hue, s: s * 100, l: l * 100 };
+}
+function testoPerSfondo(hex) {
+  let hsl;
+  try { hsl = hexToHsl(hex); } catch { return { color: '#fff', scuro: false }; }
+  const sat = Math.min(100, hsl.s + 10);
+  return hsl.l < 55
+    ? { color: `hsl(${hsl.h.toFixed(0)} ${sat.toFixed(0)}% 88%)`, scuro: false }   // fondo scuro -> testo chiaro
+    : { color: `hsl(${hsl.h.toFixed(0)} ${sat.toFixed(0)}% 26%)`, scuro: true };    // fondo chiaro -> testo scuro
+}
+
 // giorni lavorativi tra due date (estremi inclusi), esclusi sabato e domenica
 function giorniLavorativi(inizio, fine) {
   let n = 0;
@@ -776,7 +805,6 @@ function renderGantt(tasks) {
   const g = el('gantt');
   if (!tasks.length) { g.innerHTML = '<p class="muted">Nessuna attività. Aggiungine una qui sopra.</p>'; return; }
 
-  const dw = state.ganttDayWidth;
   const ROW = 34, BAR = 22;
   // estensione automatica sui task (con un po' di margine)
   let autoStart = tasks[0].data_inizio, autoEnd = tasks[0].data_fine;
@@ -797,6 +825,11 @@ function renderGantt(tasks) {
     b.classList.toggle('active', b.dataset.range === (state.ganttRangePreset || 'all')));
 
   const totalDays = dayDiff(rangeStart, rangeEnd) + 1;
+  // riempi tutta la larghezza disponibile: allarga i giorni se il piano è più stretto
+  // della finestra (lo zoom manuale può comunque superare la larghezza -> scroll)
+  let dw = state.ganttDayWidth;
+  const avail = g.clientWidth;
+  if (avail > 0) dw = Math.max(dw, avail / totalDays);
   const chartWidth = totalDays * dw;
 
   // header: banda mesi + giorni
@@ -825,9 +858,10 @@ function renderGantt(tasks) {
   tasks.forEach((t, idx) => {
     const left = dayDiff(rangeStart, t.data_inizio) * dw;
     const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+    const txt = testoPerSfondo(t.colore);
     rowsHtml += `<div class="gantt-row${idx % 2 ? ' alt' : ''}" style="height:${ROW}px">
-      <div class="gantt-bar" data-id="${t.id}" title="${esc(t.nome)}: ${fmtData(t.data_inizio)} → ${fmtData(t.data_fine)}"
-        style="left:${left}px;width:${width}px;top:${(ROW - BAR) / 2}px;height:${BAR}px;background:${t.colore}">
+      <div class="gantt-bar${txt.scuro ? ' testo-scuro' : ''}" data-id="${t.id}" title="${esc(t.nome)}: ${fmtData(t.data_inizio)} → ${fmtData(t.data_fine)}"
+        style="left:${left}px;width:${width}px;top:${(ROW - BAR) / 2}px;height:${BAR}px;background:${t.colore};color:${txt.color}">
         <span class="grip" data-grip="start"></span>
         <span class="bar-label">${esc(t.nome)}</span>
         <span class="grip" data-grip="end"></span>
@@ -1333,7 +1367,17 @@ function setTab(nome) {
   document.querySelectorAll('.tab').forEach(t => t.hidden = t.id !== `tab-${nome}`);
   history.replaceState(null, '', `#${nome}`); // il tab sopravvive al refresh
   if (nome === 'config') renderBackups();
+  if (nome === 'lavori') renderGantt(state.tasks); // ora il tab è visibile: il Gantt riempie la larghezza
 }
+
+// il Gantt si riadatta alla larghezza quando la finestra cambia
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!el('tab-lavori').hidden && state.tasks.length) renderGantt(state.tasks);
+  }, 150);
+});
 
 (async function init() {
   bindEvents();
