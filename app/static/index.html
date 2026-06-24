@@ -190,39 +190,46 @@ Impianti,2026-03-11,2026-03-25,#2563eb</pre>
           <span id="tk-csv-status" class="muted small"></span>
         </div>
       </article>
-      <article>
-        <table id="tbl-tasks" class="responsive-tbl">
-          <thead><tr>
-            <th>Attività</th><th>Inizio</th><th>Fine</th>
-            <th title="Giorni lavorativi (esclusi sabato e domenica, estremi inclusi)">Durata</th>
-            <th title="Attività che devono finire prima (finish-to-start)">Dipende da</th>
-            <th>Colore</th><th></th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </article>
-      <article id="gantt-card">
-        <div class="gantt-toolbar">
-          <h4>Cronoprogramma</h4>
-          <div class="gantt-controls">
-            <div class="gantt-range" title="Finestra di date mostrata">
-              <button class="grng" data-range="all">Tutto</button>
-              <button class="grng" data-range="month">Mese</button>
-              <button class="grng" data-range="quarter">Trimestre</button>
-              <button class="grng" data-range="year">Anno</button>
-            </div>
-            <label class="gantt-dates">Da <input type="date" id="gantt-from"> a <input type="date" id="gantt-to"></label>
-            <div class="gantt-zoom">
-              <span class="muted small">Zoom</span>
-              <button id="gantt-zoom-out" class="icon-btn" title="Riduci">−</button>
-              <button id="gantt-zoom-in" class="icon-btn" title="Ingrandisci">+</button>
+      <div class="lavori-split" id="lavori-split">
+        <article class="lv-pane lv-tasks">
+          <table id="tbl-tasks" class="responsive-tbl">
+            <thead><tr>
+              <th>Attività</th><th>Inizio</th><th>Fine</th>
+              <th title="Giorni lavorativi (esclusi sabato e domenica, estremi inclusi)">Durata</th>
+              <th title="Attività che devono finire prima (finish-to-start)">Dipende da</th>
+              <th>Colore</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </article>
+        <div class="lv-handle" id="lavori-handle" title="Trascina su/giù per ridimensionare lista e Gantt"></div>
+        <article id="gantt-card" class="lv-pane lv-gantt">
+          <div class="gantt-toolbar">
+            <h4>Cronoprogramma</h4>
+            <div class="gantt-controls">
+              <div class="gantt-range" title="Finestra di date mostrata">
+                <button class="grng" data-range="all">Tutto</button>
+                <button class="grng" data-range="month">Mese</button>
+                <button class="grng" data-range="quarter">Trimestre</button>
+                <button class="grng" data-range="year">Anno</button>
+              </div>
+              <label class="gantt-dates">Da <input type="date" id="gantt-from"> a <input type="date" id="gantt-to"></label>
+              <div class="gantt-zoom">
+                <span class="muted small">Zoom</span>
+                <button id="gantt-zoom-out" class="icon-btn" title="Riduci">−</button>
+                <button id="gantt-zoom-in" class="icon-btn" title="Ingrandisci">+</button>
+              </div>
+              <div class="gantt-export">
+                <button id="gantt-png" class="secondary outline">⬇ PNG</button>
+                <button id="gantt-pdf" class="secondary outline">⬇ PDF</button>
+              </div>
             </div>
           </div>
-        </div>
-        <p class="muted small">Trascina il corpo della barra per spostare l'attività, i bordi per cambiarne inizio/fine.
-          Le frecce mostrano le dipendenze; in rosso quelle violate (un'attività inizia prima della fine di chi la precede).</p>
-        <div id="gantt"></div>
-      </article>
+          <p class="muted small">Trascina il corpo della barra per spostare l'attività, i bordi per cambiarne inizio/fine.
+            Le frecce mostrano le dipendenze; in rosso quelle violate (un'attività inizia prima della fine di chi la precede).</p>
+          <div id="gantt"></div>
+        </article>
+      </div>
     </section>
 
     <!-- ===================== 730 ===================== -->

@@ -638,33 +638,14 @@ const dateToIso = d => d.toISOString().slice(0, 10);
 const addDays = (iso, n) => dateToIso(new Date(isoToDate(iso).getTime() + n * 86400000));
 const dayDiff = (a, b) => Math.round((isoToDate(b).getTime() - isoToDate(a).getTime()) / 86400000);
 const parsePreds = s => String(s || '').split(',').map(x => parseInt(x, 10)).filter(n => Number.isFinite(n));
-// colore testo leggibile sulla barra: stessa tinta del fondo ma luminosità opposta
-// (fondo scuro -> testo chiaro stessa tinta; fondo chiaro -> testo scuro stessa tinta)
-function hexToHsl(hex) {
-  let h = hex.replace('#', '');
-  if (h.length === 3) h = h.split('').map(c => c + c).join('');
-  const r = parseInt(h.slice(0, 2), 16) / 255;
-  const g = parseInt(h.slice(2, 4), 16) / 255;
-  const b = parseInt(h.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-  let hue = 0;
-  if (d) {
-    if (max === r) hue = ((g - b) / d) % 6;
-    else if (max === g) hue = (b - r) / d + 2;
-    else hue = (r - g) / d + 4;
-    hue *= 60; if (hue < 0) hue += 360;
-  }
-  const l = (max + min) / 2;
-  const s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
-  return { h: hue, s: s * 100, l: l * 100 };
-}
+// colore testo leggibile sulla barra: nero sui colori chiari, bianco sui colori scuri
 function testoPerSfondo(hex) {
-  let hsl;
-  try { hsl = hexToHsl(hex); } catch { return { color: '#fff', scuro: false }; }
-  const sat = Math.min(100, hsl.s + 10);
-  return hsl.l < 55
-    ? { color: `hsl(${hsl.h.toFixed(0)} ${sat.toFixed(0)}% 88%)`, scuro: false }   // fondo scuro -> testo chiaro
-    : { color: `hsl(${hsl.h.toFixed(0)} ${sat.toFixed(0)}% 26%)`, scuro: true };    // fondo chiaro -> testo scuro
+  let h = (hex || '').replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  if (h.length !== 6) return { color: '#fff', scuro: false };
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? { color: '#000', scuro: true } : { color: '#fff', scuro: false };
 }
 
 // giorni lavorativi tra due date (estremi inclusi), esclusi sabato e domenica
@@ -928,6 +909,151 @@ function bindGanttHover(rows, rangeStart, totalDays, dw) {
 }
 
 function oggiIso() { return new Date().toISOString().slice(0, 10); }
+
+/* --- export Gantt: SVG autonomo -> PNG / PDF --- */
+const xmlEsc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// genera un SVG autonomo (stili inline) dell'intero piano, indipendente dalla finestra mostrata
+function buildGanttSvg() {
+  const tasks = state.tasks;
+  if (!tasks.length) return null;
+  const dw = Math.max(20, state.ganttDayWidth);
+  const ROW = 30, BAR = 20, HEAD = 34;
+  let s = tasks[0].data_inizio, e = tasks[0].data_fine;
+  for (const t of tasks) { if (t.data_inizio < s) s = t.data_inizio; if (t.data_fine > e) e = t.data_fine; }
+  s = addDays(s, -2); e = addDays(e, 2);
+  const N = dayDiff(s, e) + 1, W = N * dw, H = HEAD + tasks.length * ROW;
+  const parts = [];
+  parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`);
+  // shading weekend a tutta altezza
+  for (let k = 0; k < N; k++) {
+    const g = isoToDate(addDays(s, k)).getUTCDay();
+    if (g === 0 || g === 6) parts.push(`<rect x="${k * dw}" y="${HEAD}" width="${dw}" height="${H - HEAD}" fill="#eef0f3"/>`);
+  }
+  // gridlines giorni
+  for (let k = 0; k <= N; k++) parts.push(`<line x1="${k * dw}" y1="${HEAD}" x2="${k * dw}" y2="${H}" stroke="#e6e9ee" stroke-width="1"/>`);
+  // righe alternate
+  tasks.forEach((t, idx) => { if (idx % 2) parts.push(`<rect x="0" y="${HEAD + idx * ROW}" width="${W}" height="${ROW}" fill="#f2f5fd"/>`); });
+  // header
+  parts.push(`<rect x="0" y="0" width="${W}" height="${HEAD}" fill="#f1f4f9"/>`);
+  parts.push(`<line x1="0" y1="${HEAD}" x2="${W}" y2="${HEAD}" stroke="#dfe3e9" stroke-width="1"/>`);
+  let i = 0;
+  while (i < N) {
+    const d = isoToDate(addDays(s, i)), m = d.getUTCMonth(), y = d.getUTCFullYear();
+    let span = 0;
+    while (i + span < N) { const dd = isoToDate(addDays(s, i + span)); if (dd.getUTCMonth() !== m || dd.getUTCFullYear() !== y) break; span++; }
+    parts.push(`<text x="${i * dw + 4}" y="13" font-size="11" font-weight="700" fill="#555">${MESI_BREVI[m]} ${y}</text>`);
+    i += span;
+  }
+  if (dw >= 16) for (let k = 0; k < N; k++) {
+    parts.push(`<text x="${k * dw + dw / 2}" y="29" font-size="9" fill="#999" text-anchor="middle">${isoToDate(addDays(s, k)).getUTCDate()}</text>`);
+  }
+  // dipendenze
+  const rowOf = id => tasks.findIndex(t => t.id === id);
+  tasks.forEach((t, idx) => {
+    parsePreds(t.predecessori).forEach(pid => {
+      const pi = rowOf(pid); if (pi < 0) return;
+      const pred = tasks[pi];
+      const x1 = (dayDiff(s, pred.data_fine) + 1) * dw, y1 = HEAD + pi * ROW + ROW / 2;
+      const x2 = dayDiff(s, t.data_inizio) * dw, y2 = HEAD + idx * ROW + ROW / 2;
+      const viol = dayDiff(pred.data_fine, t.data_inizio) <= 0;
+      const midx = Math.max(x1 + 8, x2 - 8);
+      const col = viol ? '#dc2626' : '#94a3b8';
+      const dash = viol ? ' stroke-dasharray="4 3"' : '';
+      parts.push(`<path d="M${x1},${y1} H${midx} V${y2} H${x2}" fill="none" stroke="${col}" stroke-width="${viol ? 2 : 1.5}"${dash}/>`);
+      parts.push(`<path d="M${x2 - 6},${y2 - 3.5} L${x2},${y2} L${x2 - 6},${y2 + 3.5} z" fill="${col}"/>`);
+    });
+  });
+  // barre + etichette
+  tasks.forEach((t, idx) => {
+    const left = dayDiff(s, t.data_inizio) * dw;
+    const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+    const top = HEAD + idx * ROW + (ROW - BAR) / 2;
+    const txt = testoPerSfondo(t.colore);
+    parts.push(`<rect x="${left}" y="${top}" width="${width}" height="${BAR}" rx="5" fill="${t.colore}"/>`);
+    const maxc = Math.floor((width - 8) / 6.5);
+    if (maxc >= 2) {
+      let nome = t.nome || '';
+      if (nome.length > maxc) nome = nome.slice(0, Math.max(1, maxc - 1)) + '…';
+      parts.push(`<text x="${left + 5}" y="${top + BAR / 2 + 4}" font-size="11" font-weight="600" fill="${txt.color}">${xmlEsc(nome)}</text>`);
+    }
+  });
+  // linea oggi
+  const td = dayDiff(s, oggiIso());
+  if (td >= 0 && td < N) parts.push(`<line x1="${td * dw + dw / 2}" y1="0" x2="${td * dw + dw / 2}" y2="${H}" stroke="#dc2626" stroke-width="2" opacity="0.6"/>`);
+
+  const str = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="system-ui,Segoe UI,Roboto,sans-serif">${parts.join('')}</svg>`;
+  return { str, w: W, h: H };
+}
+
+function svgToCanvas(svgStr, w, h, scale = 2) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' }));
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+      const ctx = c.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      resolve(c);
+    };
+    img.onerror = err => { URL.revokeObjectURL(url); reject(err); };
+    img.src = url;
+  });
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// PDF a pagina singola con il Gantt come immagine JPEG (DCTDecode), senza librerie
+function jpegToPdf(dataUrl, iw, ih) {
+  const bin = atob(dataUrl.split(',')[1]);
+  const img = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) img[i] = bin.charCodeAt(i);
+  const W = (iw * 72 / 96).toFixed(2), H = (ih * 72 / 96).toFixed(2);
+  const enc = s => { const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; };
+  const chunks = []; let len = 0; const off = [];
+  const add = u => { chunks.push(u); len += u.length; };
+  const obj = (n, body) => { off[n] = len; add(enc(n + ' 0 obj\n')); body.forEach(p => add(typeof p === 'string' ? enc(p) : p)); add(enc('\nendobj\n')); };
+  add(enc('%PDF-1.3\n'));
+  obj(1, ['<</Type/Catalog/Pages 2 0 R>>']);
+  obj(2, ['<</Type/Pages/Kids[3 0 R]/Count 1>>']);
+  obj(3, [`<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${W} ${H}]/Resources<</XObject<</Im0 4 0 R>>>>/Contents 5 0 R>>`]);
+  obj(4, [`<</Type/XObject/Subtype/Image/Width ${iw}/Height ${ih}/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length ${img.length}>>\nstream\n`, img, '\nendstream']);
+  const content = `q\n${W} 0 0 ${H} 0 0 cm\n/Im0 Do\nQ\n`;
+  obj(5, [`<</Length ${content.length}>>\nstream\n${content}endstream`]);
+  const xrefPos = len;
+  let xref = 'xref\n0 6\n0000000000 65535 f \n';
+  for (let n = 1; n <= 5; n++) xref += String(off[n]).padStart(10, '0') + ' 00000 n \n';
+  add(enc(xref));
+  add(enc(`trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n${xrefPos}\n%%EOF`));
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
+async function exportGantt(formato) {
+  const svg = buildGanttSvg();
+  if (!svg) { alert('Nessuna attività da esportare.'); return; }
+  try {
+    const canvas = await svgToCanvas(svg.str, svg.w, svg.h, 2);
+    const data = new Date().toISOString().slice(0, 10);
+    if (formato === 'png') {
+      canvas.toBlob(b => downloadBlob(b, `gantt-${data}.png`), 'image/png');
+    } else {
+      const jpeg = canvas.toDataURL('image/jpeg', 0.92);
+      downloadBlob(jpegToPdf(jpeg, canvas.width, canvas.height), `gantt-${data}.pdf`);
+    }
+  } catch (err) {
+    alert('Export non riuscito: ' + (err.message || err));
+  }
+}
 
 // preset relativi della finestra del Gantt
 function setGanttRange(preset) {
@@ -1324,6 +1450,31 @@ function bindEvents() {
     el('tk-csv-status').textContent = file.name;
     await importTasksCsv(file);
     e.target.value = '';
+  });
+
+  // export Gantt
+  el('gantt-png').addEventListener('click', () => exportGantt('png'));
+  el('gantt-pdf').addEventListener('click', () => exportGantt('pdf'));
+
+  // split ridimensionabile lista attività / Gantt
+  let split = null;
+  el('lavori-handle').addEventListener('pointerdown', e => {
+    const pane = el('lavori-split').querySelector('.lv-tasks');
+    split = { y: e.clientY, h: pane.offsetHeight, pane };
+    el('lavori-handle').setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  });
+  window.addEventListener('pointermove', e => {
+    if (!split) return;
+    const tot = el('lavori-split').clientHeight;
+    let h = split.h + (e.clientY - split.y);
+    h = Math.max(80, Math.min(h, tot - 120));
+    split.pane.style.height = h + 'px';
+  });
+  window.addEventListener('pointerup', () => {
+    if (!split) return;
+    split = null;
+    if (state.tasks.length) renderGantt(state.tasks); // ricalcola riempimento larghezza
   });
 
   // finestra date del Gantt: preset relativi
