@@ -978,7 +978,29 @@ function buildGanttSvg() {
   let s = tasks[0].data_inizio, e = tasks[0].data_fine;
   for (const t of tasks) { if (t.data_inizio < s) s = t.data_inizio; if (t.data_fine > e) e = t.data_fine; }
   s = addDays(s, -2); e = addDays(e, 2);
-  const N = dayDiff(s, e) + 1, W = N * dw, H = HEAD + tasks.length * ROW;
+  const N = dayDiff(s, e) + 1, dayW = N * dw, H = HEAD + tasks.length * ROW;
+  const CW = 6.4; // larghezza media carattere a 11px
+
+  // intestazione opzionale "Piano lavori <input>"
+  const titolo = ('Piano lavori ' + (state.ganttTitolo || '')).trim();
+  const hasTitle = !!(state.ganttTitolo || '').trim();
+  const titleBand = hasTitle ? 30 : 0;
+
+  // larghezza necessaria: i nomi che non entrano nella barra vengono scritti a fianco
+  let needW = dayW;
+  tasks.forEach((t, idx) => {
+    const nameW = (t.nome || '').length * CW;
+    if (t.tipo === 'milestone') {
+      const cx = dayDiff(s, t.data_inizio) * dw + dw / 2;
+      needW = Math.max(needW, cx + 10 + nameW + 6);
+    } else {
+      const left = dayDiff(s, t.data_inizio) * dw;
+      const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+      if (nameW + 10 > width) needW = Math.max(needW, left + width + 4 + nameW + 6);
+    }
+  });
+  const W = Math.max(dayW, needW);
+
   const parts = [];
   parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`);
   // shading weekend a tutta altezza
@@ -1020,13 +1042,12 @@ function buildGanttSvg() {
       parts.push(`<path d="M${x2 - 6},${y2 - 3.5} L${x2},${y2} L${x2 - 6},${y2 + 3.5} z" fill="${col}"/>`);
     });
   });
-  // barre, etichette e checkpoint
+  // barre, etichette e checkpoint (nomi sempre interi: dentro la barra se entrano, altrimenti a fianco)
   tasks.forEach((t, idx) => {
     if (t.tipo === 'milestone') {
       const cx = dayDiff(s, t.data_inizio) * dw + dw / 2;
       const cy = HEAD + idx * ROW + ROW / 2;
       const r = 7;
-      // linea verticale a tutta altezza + diamante + nome
       parts.push(`<line x1="${cx}" y1="${HEAD}" x2="${cx}" y2="${H}" stroke="${t.colore}" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>`);
       parts.push(`<path d="M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} z" fill="${t.colore}" stroke="#fff" stroke-width="1"/>`);
       parts.push(`<text x="${cx + r + 3}" y="${cy + 4}" font-size="11" font-weight="600" fill="#333">${xmlEsc(t.nome || '')}</text>`);
@@ -1035,21 +1056,26 @@ function buildGanttSvg() {
     const left = dayDiff(s, t.data_inizio) * dw;
     const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
     const top = HEAD + idx * ROW + (ROW - BAR) / 2;
-    const txt = testoPerSfondo(t.colore);
+    const nome = t.nome || '';
     parts.push(`<rect x="${left}" y="${top}" width="${width}" height="${BAR}" rx="5" fill="${t.colore}"/>`);
-    const maxc = Math.floor((width - 8) / 6.5);
-    if (maxc >= 2) {
-      let nome = t.nome || '';
-      if (nome.length > maxc) nome = nome.slice(0, Math.max(1, maxc - 1)) + '…';
+    if (nome.length * CW + 10 <= width) {
+      const txt = testoPerSfondo(t.colore);
       parts.push(`<text x="${left + 5}" y="${top + BAR / 2 + 4}" font-size="11" font-weight="600" fill="${txt.color}">${xmlEsc(nome)}</text>`);
+    } else {
+      parts.push(`<text x="${left + width + 4}" y="${top + BAR / 2 + 4}" font-size="11" font-weight="600" fill="#333">${xmlEsc(nome)}</text>`);
     }
   });
   // linea oggi
   const td = dayDiff(s, oggiIso());
   if (td >= 0 && td < N) parts.push(`<line x1="${td * dw + dw / 2}" y1="0" x2="${td * dw + dw / 2}" y2="${H}" stroke="#dc2626" stroke-width="2" opacity="0.6"/>`);
 
-  const str = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="system-ui,Segoe UI,Roboto,sans-serif">${parts.join('')}</svg>`;
-  return { str, w: W, h: H };
+  const totalH = H + titleBand;
+  const titleSvg = hasTitle
+    ? `<text x="6" y="20" font-size="16" font-weight="700" fill="#222">${xmlEsc(titolo)}</text>` : '';
+  const str = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${totalH}" viewBox="0 0 ${W} ${totalH}" font-family="system-ui,Segoe UI,Roboto,sans-serif">` +
+    `<rect x="0" y="0" width="${W}" height="${totalH}" fill="#ffffff"/>${titleSvg}` +
+    `<g transform="translate(0,${titleBand})">${parts.join('')}</g></svg>`;
+  return { str, w: W, h: totalH };
 }
 
 function svgToCanvas(svgStr, w, h, scale = 2) {
@@ -1108,7 +1134,23 @@ function buildGanttPdf() {
   let s = tasks[0].data_inizio, e = tasks[0].data_fine;
   for (const t of tasks) { if (t.data_inizio < s) s = t.data_inizio; if (t.data_fine > e) e = t.data_fine; }
   s = addDays(s, -2); e = addDays(e, 2);
-  const N = dayDiff(s, e) + 1, W = N * dw, H = HEAD + tasks.length * ROW;
+  const N = dayDiff(s, e) + 1, dayW = N * dw, H = HEAD + tasks.length * ROW;
+  const CW = 6.2; // larghezza media carattere a 10px
+
+  // larghezza necessaria: nomi che non entrano nella barra scritti a fianco
+  let needW = dayW;
+  tasks.forEach(t => {
+    const nameW = (t.nome || '').length * CW;
+    if (t.tipo === 'milestone') {
+      const cx = dayDiff(s, t.data_inizio) * dw + dw / 2;
+      needW = Math.max(needW, cx + 10 + nameW + 6);
+    } else {
+      const left = dayDiff(s, t.data_inizio) * dw;
+      const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+      if (nameW + 8 > width) needW = Math.max(needW, left + width + 4 + nameW + 6);
+    }
+  });
+  const W = Math.max(dayW, needW);
 
   // intestazione opzionale: "Piano lavori <input>"
   const titolo = ('Piano lavori ' + (state.ganttTitolo || '')).trim();
@@ -1181,12 +1223,12 @@ function buildGanttPdf() {
     const left = dayDiff(s, t.data_inizio) * dw;
     const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
     const top = HEAD + idx * ROW + (ROW - BAR) / 2;
+    const nome = t.nome || '';
     rect(left, top, width, BAR, t.colore);
-    const maxc = Math.floor((width * S - 6) / (6.2 * S));
-    if (maxc >= 2) {
-      let nome = t.nome || '';
-      if (nome.length > maxc) nome = nome.slice(0, Math.max(1, maxc - 1)) + '…';
-      text(left + 4, top + BAR / 2 + 3.5, nome, 10, testoPerSfondo(t.colore).color);
+    if (nome.length * CW + 8 <= width) {
+      text(left + 4, top + BAR / 2 + 3.5, nome, 10, testoPerSfondo(t.colore).color);   // dentro la barra
+    } else {
+      text(left + width + 4, top + BAR / 2 + 3.5, nome, 10, '#333333');                // a fianco, intero
     }
   });
   // linea oggi
