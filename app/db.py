@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS prior_deductions (
     rate_totali INTEGER NOT NULL DEFAULT 10,
     aliquota REAL NOT NULL DEFAULT 0.50
 );
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL DEFAULT '',
+    data_inizio TEXT NOT NULL,       -- ISO yyyy-mm-dd
+    data_fine TEXT NOT NULL,         -- ISO yyyy-mm-dd (inclusiva)
+    predecessori TEXT NOT NULL DEFAULT '',  -- id attività separati da virgola (finish-to-start)
+    colore TEXT NOT NULL DEFAULT '#2563eb',
+    ordine INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # le spese sostenute da quest'anno in poi sono soggette al tetto art. 16-ter
@@ -188,11 +197,88 @@ def load_year_inputs(conn: sqlite3.Connection, anno: int) -> dict:
     }
 
 
+# ---------- attività / cronoprogramma (Gantt) ----------
+
+TASK_FIELDS = ("nome", "data_inizio", "data_fine", "predecessori", "colore", "ordine")
+
+
+def list_tasks(conn: sqlite3.Connection) -> list[dict]:
+    return [dict(r) for r in conn.execute("SELECT * FROM tasks ORDER BY ordine, id")]
+
+
+def create_task(conn: sqlite3.Connection, data: dict) -> int:
+    ordine = data.get("ordine")
+    if ordine is None:
+        ordine = (conn.execute("SELECT COALESCE(MAX(ordine), 0) + 1 FROM tasks").fetchone()[0])
+    cur = conn.execute(
+        "INSERT INTO tasks (nome, data_inizio, data_fine, predecessori, colore, ordine) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            data.get("nome", ""),
+            data["data_inizio"],
+            data["data_fine"],
+            _clean_predecessori(data.get("predecessori", "")),
+            data.get("colore", "#2563eb"),
+            ordine,
+        ),
+    )
+    return cur.lastrowid
+
+
+def update_task(conn: sqlite3.Connection, tid: int, data: dict) -> None:
+    campi = [c for c in TASK_FIELDS if c in data]
+    if not campi:
+        return
+    vals = []
+    for c in campi:
+        v = data[c]
+        if c == "predecessori":
+            v = _clean_predecessori(v)
+        vals.append(v)
+    set_clause = ", ".join(f"{c} = ?" for c in campi)
+    conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", (*vals, tid))
+
+
+def delete_task(conn: sqlite3.Connection, tid: int) -> None:
+    conn.execute("DELETE FROM tasks WHERE id = ?", (tid,))
+    # rimuovi il riferimento dai predecessori delle altre attività
+    for row in conn.execute("SELECT id, predecessori FROM tasks").fetchall():
+        ids = [i for i in _parse_ids(row["predecessori"]) if i != tid]
+        nuovo = ",".join(str(i) for i in ids)
+        if nuovo != (row["predecessori"] or ""):
+            conn.execute("UPDATE tasks SET predecessori = ? WHERE id = ?", (nuovo, row["id"]))
+
+
+def _parse_ids(s: str) -> list[int]:
+    out = []
+    for part in (s or "").split(","):
+        part = part.strip()
+        if part:
+            try:
+                out.append(int(part))
+            except ValueError:
+                pass
+    return out
+
+
+def _clean_predecessori(s) -> str:
+    if isinstance(s, (list, tuple)):
+        ids = [int(x) for x in s]
+    else:
+        ids = _parse_ids(str(s))
+    # dedup mantenendo l'ordine
+    seen = []
+    for i in ids:
+        if i not in seen:
+            seen.append(i)
+    return ",".join(str(i) for i in seen)
+
+
 def export_all(conn: sqlite3.Connection) -> dict:
     out = {}
     for table in (
         "persons", "person_years", "prior_deductions",
-        "eco_categories", "suppliers", "expenses", "year_settings",
+        "eco_categories", "suppliers", "expenses", "year_settings", "tasks",
     ):
         out[table] = [dict(r) for r in conn.execute(f"SELECT * FROM {table}")]
     return out
@@ -201,7 +287,7 @@ def export_all(conn: sqlite3.Connection) -> dict:
 def import_all(conn: sqlite3.Connection, data: dict) -> None:
     tables = (
         "expenses", "suppliers", "eco_categories",
-        "person_years", "prior_deductions", "persons", "year_settings",
+        "person_years", "prior_deductions", "persons", "year_settings", "tasks",
     )
     for table in tables:  # delete in FK-safe order
         conn.execute(f"DELETE FROM {table}")

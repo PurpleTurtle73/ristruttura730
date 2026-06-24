@@ -101,3 +101,56 @@ def test_export_include_prior_deductions(tmp_db):
         db.import_all(conn, dump)
         n = conn.execute("SELECT COUNT(*) FROM prior_deductions").fetchone()[0]
     assert n == 1
+
+
+# ---------- attività / cronoprogramma ----------
+
+
+def test_task_crud_e_ordine(tmp_db):
+    with db.connect() as conn:
+        a = db.create_task(conn, {"nome": "Demolizioni", "data_inizio": "2026-03-01", "data_fine": "2026-03-10"})
+        b = db.create_task(conn, {"nome": "Impianti", "data_inizio": "2026-03-11", "data_fine": "2026-03-25"})
+        tasks = db.list_tasks(conn)
+    assert [t["nome"] for t in tasks] == ["Demolizioni", "Impianti"]
+    assert tasks[0]["ordine"] < tasks[1]["ordine"]   # ordine auto-incrementale
+    assert a != b
+
+
+def test_task_update_parziale(tmp_db):
+    with db.connect() as conn:
+        tid = db.create_task(conn, {"nome": "X", "data_inizio": "2026-03-01", "data_fine": "2026-03-05"})
+        db.update_task(conn, tid, {"data_fine": "2026-03-09"})   # solo un campo
+        t = db.list_tasks(conn)[0]
+    assert t["data_fine"] == "2026-03-09"
+    assert t["data_inizio"] == "2026-03-01"
+
+
+def test_task_predecessori_pulizia_e_dedup(tmp_db):
+    with db.connect() as conn:
+        a = db.create_task(conn, {"nome": "A", "data_inizio": "2026-03-01", "data_fine": "2026-03-05"})
+        b = db.create_task(conn, {"nome": "B", "data_inizio": "2026-03-06", "data_fine": "2026-03-10"})
+        # input "sporco" con spazi, duplicati e vuoti -> normalizzato
+        db.update_task(conn, b, {"predecessori": f" {a}, {a} ,,"})
+        t = next(x for x in db.list_tasks(conn) if x["id"] == b)
+    assert t["predecessori"] == str(a)
+
+
+def test_delete_task_rimuove_riferimenti(tmp_db):
+    with db.connect() as conn:
+        a = db.create_task(conn, {"nome": "A", "data_inizio": "2026-03-01", "data_fine": "2026-03-05"})
+        b = db.create_task(conn, {"nome": "B", "data_inizio": "2026-03-06", "data_fine": "2026-03-10"})
+        db.update_task(conn, b, {"predecessori": str(a)})
+        db.delete_task(conn, a)                 # eliminando A il riferimento in B sparisce
+        tasks = db.list_tasks(conn)
+    assert len(tasks) == 1 and tasks[0]["id"] == b
+    assert tasks[0]["predecessori"] == ""
+
+
+def test_export_import_include_tasks(tmp_db):
+    with db.connect() as conn:
+        db.create_task(conn, {"nome": "Tinteggiatura", "data_inizio": "2026-04-01", "data_fine": "2026-04-07"})
+        dump = db.export_all(conn)
+        assert dump["tasks"][0]["nome"] == "Tinteggiatura"
+        db.import_all(conn, dump)
+        n = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+    assert n == 1

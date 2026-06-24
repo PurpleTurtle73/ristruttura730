@@ -13,6 +13,11 @@ const state = {
   personYears: {},  // person_id -> {reddito, ritenute, detrazioni_pregresse}
   editingSupplier: null,
   sortSpese: { key: 'data', dir: 1 },
+  tasks: [],          // attività del cronoprogramma (globali, non per anno)
+  ganttDayWidth: 18,  // px per giorno nel Gantt
+  ganttFrom: null,    // finestra date esplicita (null = auto sui task)
+  ganttTo: null,
+  ganttRangePreset: 'all',
 };
 
 function applyTheme(t) {
@@ -57,12 +62,13 @@ async function api(method, url, body) {
 /* ---------------- caricamento ---------------- */
 
 async function loadGlobal() {
-  [state.years, state.persons, state.suppliers, state.ecoCats, state.priorDeductions] = await Promise.all([
+  [state.years, state.persons, state.suppliers, state.ecoCats, state.priorDeductions, state.tasks] = await Promise.all([
     api('GET', '/api/years'),
     api('GET', '/api/persons'),
     api('GET', '/api/suppliers'),
     api('GET', '/api/eco-categories'),
     api('GET', '/api/prior-deductions'),
+    api('GET', '/api/tasks'),
   ]);
   if (!state.anno || !state.years.includes(state.anno)) {
     state.anno = state.years[state.years.length - 1];
@@ -107,6 +113,7 @@ function renderAll() {
   renderDashboard();
   renderSpese();
   renderFornitori();
+  renderLavori();
   render730();
   renderConfig();
 }
@@ -341,7 +348,7 @@ function renderPreviste() {
   const oltre = unpaid.filter(e => e.data >= fineISO);
 
   const riga = e => `<tr>
-    <td>${e.data}</td><td>${e.supplier_nome}</td><td>${e.descrizione || ''}</td>
+    <td>${fmtData(e.data)}</td><td>${e.supplier_nome}</td><td>${e.descrizione || ''}</td>
     <td class="num">${eur2(e.importo)}</td></tr>`;
   const tot = list => list.reduce((s, e) => s + e.importo, 0);
 
@@ -368,6 +375,7 @@ function renderPreviste() {
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
 const MESI_BREVI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+// formato italiano "31 dic 2025" (giorno, mese breve, anno) — usato ovunque
 const fmtData = iso => iso ? `${Number(iso.slice(8, 10))} ${MESI_BREVI[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '';
 
 function renderSpese() {
@@ -620,6 +628,348 @@ function render730() {
       <div class="muted small">Spese non detraibili: ${eur2(sp.non_detraibili)} · aliquota applicata: ${pct(r.aliquota)}</div>
     </article>`;
   }).join('');
+}
+
+/* ---- lavori / cronoprogramma (Gantt) ---- */
+
+// utility date UTC (niente sfasamenti per fuso/DST)
+const isoToDate = iso => new Date(iso + 'T00:00:00Z');
+const dateToIso = d => d.toISOString().slice(0, 10);
+const addDays = (iso, n) => dateToIso(new Date(isoToDate(iso).getTime() + n * 86400000));
+const dayDiff = (a, b) => Math.round((isoToDate(b).getTime() - isoToDate(a).getTime()) / 86400000);
+const parsePreds = s => String(s || '').split(',').map(x => parseInt(x, 10)).filter(n => Number.isFinite(n));
+// giorni lavorativi tra due date (estremi inclusi), esclusi sabato e domenica
+function giorniLavorativi(inizio, fine) {
+  let n = 0;
+  for (let k = 0, tot = dayDiff(inizio, fine) + 1; k < tot; k++) {
+    const g = isoToDate(addDays(inizio, k)).getUTCDay();
+    if (g !== 0 && g !== 6) n++;
+  }
+  return n;
+}
+
+async function reloadTasks() {
+  state.tasks = await api('GET', '/api/tasks');
+  renderLavori();
+}
+
+window.saveTaskInline = async (id, field, value) => {
+  await api('PUT', `/api/tasks/${id}`, { [field]: value });
+  await reloadTasks();
+};
+window.deleteTask = async id => {
+  if (!confirm("Eliminare l'attività?")) return;
+  await api('DELETE', `/api/tasks/${id}`);
+  await reloadTasks();
+};
+window.addDep = async (id, predId) => {
+  const t = state.tasks.find(x => x.id === id);
+  const preds = [...parsePreds(t.predecessori), predId];
+  await api('PUT', `/api/tasks/${id}`, { predecessori: preds.join(',') });
+  await reloadTasks();
+};
+window.removeDep = async (id, predId) => {
+  const t = state.tasks.find(x => x.id === id);
+  const preds = parsePreds(t.predecessori).filter(p => p !== predId);
+  await api('PUT', `/api/tasks/${id}`, { predecessori: preds.join(',') });
+  await reloadTasks();
+};
+
+/* --- aggiunta multipla attività --- */
+function tkBulkRowHtml() {
+  const oggi = new Date().toISOString().slice(0, 10);
+  return `<tr>
+    <td><input type="text" class="tb-nome" placeholder="Attività"></td>
+    <td><input type="date" class="tb-inizio" value="${oggi}"></td>
+    <td><input type="date" class="tb-fine" value="${oggi}"></td>
+    <td><input type="color" class="tb-colore" value="#2563eb"></td>
+    <td><button class="icon-btn tb-del" title="Rimuovi riga">🗑️</button></td>
+  </tr>`;
+}
+function tkBulkAddRow() {
+  el('tbl-tk-bulk').querySelector('tbody').insertAdjacentHTML('beforeend', tkBulkRowHtml());
+}
+async function tkBulkSave() {
+  const rows = [...el('tbl-tk-bulk').querySelectorAll('tbody tr')];
+  const tasks = [];
+  for (const tr of rows) {
+    const get = c => tr.querySelector(c);
+    const nome = get('.tb-nome').value.trim();
+    const inizio = get('.tb-inizio').value, fine = get('.tb-fine').value;
+    if (!nome && !inizio && !fine) continue;       // riga vuota
+    if (!nome || !inizio || !fine) { alert('Righe incomplete: servono nome, inizio e fine.'); return; }
+    if (fine < inizio) { alert(`"${nome}": la fine precede l'inizio.`); return; }
+    tasks.push({ nome, data_inizio: inizio, data_fine: fine, colore: get('.tb-colore').value });
+  }
+  if (!tasks.length) return;
+  await api('POST', '/api/tasks/bulk', tasks);
+  el('tbl-tk-bulk').querySelector('tbody').innerHTML = '';
+  el('tk-bulk-card').hidden = true;
+  await reloadTasks();
+}
+
+/* --- import CSV: nome,inizio,fine[,colore] --- */
+function parseTasksCsv(text) {
+  const righe = text.split(/\r?\n/).map(r => r.trim()).filter(Boolean);
+  const out = [];
+  const errori = [];
+  righe.forEach((riga, idx) => {
+    const c = riga.split(/[,;\t]/).map(x => x.trim().replace(/^"|"$/g, ''));
+    // salta un'eventuale intestazione
+    if (idx === 0 && /^(nome|name|attiv)/i.test(c[0]) && !/^\d{4}-\d{2}-\d{2}$/.test(c[1] || '')) return;
+    const [nome, inizio, fine, colore] = c;
+    if (!nome || !inizio || !fine) { errori.push(`riga ${idx + 1}: campi mancanti`); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inizio) || !/^\d{4}-\d{2}-\d{2}$/.test(fine)) {
+      errori.push(`riga ${idx + 1}: date non valide (usa AAAA-MM-GG)`); return;
+    }
+    if (fine < inizio) { errori.push(`riga ${idx + 1}: la fine precede l'inizio`); return; }
+    const t = { nome, data_inizio: inizio, data_fine: fine };
+    if (colore && /^#?[0-9a-fA-F]{6}$/.test(colore)) t.colore = colore.startsWith('#') ? colore : '#' + colore;
+    out.push(t);
+  });
+  return { out, errori };
+}
+async function importTasksCsv(file) {
+  const text = await file.text();
+  const { out, errori } = parseTasksCsv(text);
+  if (errori.length) { alert('CSV non importato:\n' + errori.join('\n')); return; }
+  if (!out.length) { alert('Nessuna riga valida nel CSV.'); return; }
+  if (!confirm(`Importare ${out.length} attività dal CSV?`)) return;
+  await api('POST', '/api/tasks/bulk', out);
+  el('tk-csv-card').hidden = true;
+  el('tk-csv-status').textContent = '';
+  await reloadTasks();
+}
+
+function renderLavori() {
+  const tasks = state.tasks;
+  // default date odierne nel form
+  const oggi = new Date().toISOString().slice(0, 10);
+  if (!el('tk-inizio').value) el('tk-inizio').value = oggi;
+  if (!el('tk-fine').value) el('tk-fine').value = oggi;
+
+  const nomeById = id => { const t = tasks.find(x => x.id === id); return t ? t.nome : ('#' + id); };
+  el('tbl-tasks').querySelector('tbody').innerHTML = tasks.map(t => {
+    const preds = parsePreds(t.predecessori);
+    const chips = preds.map(pid =>
+      `<span class="dep-chip">${esc(nomeById(pid))}<button onclick="removeDep(${t.id},${pid})" title="Rimuovi">×</button></span>`).join('');
+    const opts = tasks.filter(o => o.id !== t.id && !preds.includes(o.id))
+      .map(o => `<option value="${o.id}">${esc(o.nome)}</option>`).join('');
+    const dur = giorniLavorativi(t.data_inizio, t.data_fine);
+    return `<tr>
+      <td data-l="Attività"><input type="text" value="${esc(t.nome)}" onchange="saveTaskInline(${t.id},'nome',this.value)"></td>
+      <td data-l="Inizio"><input type="date" value="${t.data_inizio}" onchange="saveTaskInline(${t.id},'data_inizio',this.value)"></td>
+      <td data-l="Fine"><input type="date" value="${t.data_fine}" onchange="saveTaskInline(${t.id},'data_fine',this.value)"></td>
+      <td data-l="Durata" class="num">${dur} gg</td>
+      <td data-l="Dipende da"><div class="dep-cell">${chips}${opts
+        ? `<select class="dep-add" onchange="if(this.value)addDep(${t.id},Number(this.value))"><option value="">+ dipendenza</option>${opts}</select>`
+        : ''}</div></td>
+      <td data-l="Colore"><input type="color" value="${t.colore}" onchange="saveTaskInline(${t.id},'colore',this.value)"></td>
+      <td class="cell-actions"><button class="icon-btn" onclick="deleteTask(${t.id})" title="Elimina">🗑️</button></td>
+    </tr>`;
+  }).join('');
+
+  renderGantt(tasks);
+}
+
+function renderGantt(tasks) {
+  const g = el('gantt');
+  if (!tasks.length) { g.innerHTML = '<p class="muted">Nessuna attività. Aggiungine una qui sopra.</p>'; return; }
+
+  const dw = state.ganttDayWidth;
+  const ROW = 34, BAR = 22;
+  // estensione automatica sui task (con un po' di margine)
+  let autoStart = tasks[0].data_inizio, autoEnd = tasks[0].data_fine;
+  for (const t of tasks) {
+    if (t.data_inizio < autoStart) autoStart = t.data_inizio;
+    if (t.data_fine > autoEnd) autoEnd = t.data_fine;
+  }
+  autoStart = addDays(autoStart, -2);
+  autoEnd = addDays(autoEnd, 2);
+  // finestra esplicita (relativa/esatta) se impostata, altrimenti auto
+  let rangeStart = state.ganttFrom || autoStart;
+  let rangeEnd = state.ganttTo || autoEnd;
+  if (rangeEnd < rangeStart) rangeEnd = rangeStart;
+  // sincronizza i controlli senza far ripartire eventi
+  el('gantt-from').value = state.ganttFrom || '';
+  el('gantt-to').value = state.ganttTo || '';
+  document.querySelectorAll('.grng').forEach(b =>
+    b.classList.toggle('active', b.dataset.range === (state.ganttRangePreset || 'all')));
+
+  const totalDays = dayDiff(rangeStart, rangeEnd) + 1;
+  const chartWidth = totalDays * dw;
+
+  // header: banda mesi + giorni
+  let monthCells = '', i = 0;
+  while (i < totalDays) {
+    const d = isoToDate(addDays(rangeStart, i));
+    const m = d.getUTCMonth(), y = d.getUTCFullYear();
+    let span = 0;
+    while (i + span < totalDays) {
+      const dd = isoToDate(addDays(rangeStart, i + span));
+      if (dd.getUTCMonth() !== m || dd.getUTCFullYear() !== y) break;
+      span++;
+    }
+    monthCells += `<div class="gantt-month" style="width:${span * dw}px">${MESI_BREVI[m]} ${y}</div>`;
+    i += span;
+  }
+  let dayCells = '';
+  for (let k = 0; k < totalDays; k++) {
+    const dd = isoToDate(addDays(rangeStart, k));
+    const we = dd.getUTCDay() === 0 || dd.getUTCDay() === 6;
+    dayCells += `<div class="gantt-day${we ? ' we' : ''}" style="width:${dw}px">${dd.getUTCDate()}</div>`;
+  }
+
+  // righe + barre
+  let rowsHtml = '';
+  tasks.forEach((t, idx) => {
+    const left = dayDiff(rangeStart, t.data_inizio) * dw;
+    const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+    rowsHtml += `<div class="gantt-row${idx % 2 ? ' alt' : ''}" style="height:${ROW}px">
+      <div class="gantt-bar" data-id="${t.id}" title="${esc(t.nome)}: ${fmtData(t.data_inizio)} → ${fmtData(t.data_fine)}"
+        style="left:${left}px;width:${width}px;top:${(ROW - BAR) / 2}px;height:${BAR}px;background:${t.colore}">
+        <span class="grip" data-grip="start"></span>
+        <span class="bar-label">${esc(t.nome)}</span>
+        <span class="grip" data-grip="end"></span>
+      </div>
+    </div>`;
+  });
+
+  // frecce dipendenze (finish-to-start)
+  const rowOf = id => tasks.findIndex(t => t.id === id);
+  let paths = '';
+  tasks.forEach((t, idx) => {
+    parsePreds(t.predecessori).forEach(pid => {
+      const pi = rowOf(pid);
+      if (pi < 0) return;
+      const pred = tasks[pi];
+      const x1 = (dayDiff(rangeStart, pred.data_fine) + 1) * dw;
+      const y1 = pi * ROW + ROW / 2;
+      const x2 = dayDiff(rangeStart, t.data_inizio) * dw;
+      const y2 = idx * ROW + ROW / 2;
+      const violato = dayDiff(pred.data_fine, t.data_inizio) <= 0;
+      const midx = Math.max(x1 + 8, x2 - 8);
+      paths += `<path d="M${x1},${y1} H${midx} V${y2} H${x2}" class="dep${violato ? ' violato' : ''}" marker-end="url(#gantt-arrow)"/>`;
+    });
+  });
+  const svg = `<svg class="gantt-deps" width="${chartWidth}" height="${tasks.length * ROW}">
+    <defs><marker id="gantt-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" class="dep-arrow"/></marker></defs>${paths}</svg>`;
+
+  // linea "oggi"
+  let todayLine = '';
+  const td = dayDiff(rangeStart, oggiIso());
+  if (td >= 0 && td < totalDays) todayLine = `<div class="gantt-today" style="left:${td * dw + dw / 2}px"></div>`;
+
+  g.innerHTML = `<div class="gantt-scroll"><div class="gantt-inner" style="width:${chartWidth}px">
+    <div class="gantt-header">
+      <div class="gantt-months">${monthCells}</div>
+      <div class="gantt-days">${dayCells}</div>
+    </div>
+    <div class="gantt-rows" style="height:${tasks.length * ROW}px;background-size:${dw}px 100%">
+      ${svg}${rowsHtml}${todayLine}
+      <div class="gantt-hover" hidden><span class="gantt-hover-lbl"></span></div>
+    </div>
+  </div></div>`;
+
+  const rows = g.querySelector('.gantt-rows');
+  bindGanttDrag(rows);
+  bindGanttHover(rows, rangeStart, totalDays, dw);
+}
+
+// indicatore della giornata sotto il puntatore (banda + etichetta data)
+function bindGanttHover(rows, rangeStart, totalDays, dw) {
+  const hov = rows.querySelector('.gantt-hover');
+  const lbl = hov.querySelector('.gantt-hover-lbl');
+  rows.addEventListener('pointermove', e => {
+    const rect = rows.getBoundingClientRect();
+    let di = Math.floor((e.clientX - rect.left) / dw);
+    if (di < 0) di = 0; else if (di >= totalDays) di = totalDays - 1;
+    hov.hidden = false;
+    hov.style.left = (di * dw) + 'px';
+    hov.style.width = dw + 'px';
+    lbl.textContent = fmtData(addDays(rangeStart, di));
+  });
+  rows.addEventListener('pointerleave', () => { hov.hidden = true; });
+}
+
+function oggiIso() { return new Date().toISOString().slice(0, 10); }
+
+// preset relativi della finestra del Gantt
+function setGanttRange(preset) {
+  state.ganttRangePreset = preset;
+  const oggi = oggiIso();
+  const y = Number(oggi.slice(0, 4)), m = Number(oggi.slice(5, 7));
+  const ym = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}`;
+  if (preset === 'all') {
+    state.ganttFrom = state.ganttTo = null;
+  } else if (preset === 'month') {
+    state.ganttFrom = `${ym(y, m)}-01`;
+    state.ganttTo = addDays(m === 12 ? `${y + 1}-01-01` : `${ym(y, m + 1)}-01`, -1);
+  } else if (preset === 'quarter') {
+    state.ganttFrom = oggi;
+    const d = isoToDate(oggi); d.setUTCMonth(d.getUTCMonth() + 3);
+    state.ganttTo = dateToIso(d);
+  } else if (preset === 'year') {
+    state.ganttFrom = `${y}-01-01`;
+    state.ganttTo = `${y}-12-31`;
+  }
+  renderLavori();
+}
+
+function bindGanttDrag(container) {
+  let drag = null;
+  container.addEventListener('pointerdown', e => {
+    const bar = e.target.closest('.gantt-bar');
+    if (!bar) return;
+    const grip = e.target.closest('[data-grip]');
+    const t = state.tasks.find(x => x.id === Number(bar.dataset.id));
+    drag = {
+      id: t.id, bar, role: grip ? grip.dataset.grip : 'move', startX: e.clientX, delta: 0,
+      inizio: t.data_inizio, fine: t.data_fine,
+      left0: parseFloat(bar.style.left), width0: parseFloat(bar.style.width),
+    };
+    bar.setPointerCapture?.(e.pointerId);
+    bar.classList.add('dragging');
+    e.preventDefault();
+  });
+  container.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dw = state.ganttDayWidth;
+    const delta = Math.round((e.clientX - drag.startX) / dw);
+    drag.delta = delta;
+    if (drag.role === 'move') {
+      drag.bar.style.left = (drag.left0 + delta * dw) + 'px';
+    } else if (drag.role === 'start') {
+      const w = drag.width0 - delta * dw;
+      if (w >= dw) { drag.bar.style.left = (drag.left0 + delta * dw) + 'px'; drag.bar.style.width = w + 'px'; }
+    } else {
+      const w = drag.width0 + delta * dw;
+      if (w >= dw) drag.bar.style.width = w + 'px';
+    }
+  });
+  const finish = async () => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    d.bar.classList.remove('dragging');
+    if (!d.delta) { renderLavori(); return; }
+    let body;
+    if (d.role === 'move') {
+      body = { data_inizio: addDays(d.inizio, d.delta), data_fine: addDays(d.fine, d.delta) };
+    } else if (d.role === 'start') {
+      let ni = addDays(d.inizio, d.delta);
+      if (dayDiff(ni, d.fine) < 0) ni = d.fine;
+      body = { data_inizio: ni };
+    } else {
+      let nf = addDays(d.fine, d.delta);
+      if (dayDiff(d.inizio, nf) < 0) nf = d.inizio;
+      body = { data_fine: nf };
+    }
+    await api('PUT', `/api/tasks/${d.id}`, body);
+    await reloadTasks();
+  };
+  container.addEventListener('pointerup', finish);
+  container.addEventListener('pointercancel', finish);
 }
 
 /* ---- configurazione ---- */
@@ -895,6 +1245,65 @@ function bindEvents() {
     });
     el('form-eco-cat').reset();
     await refresh({ global: true });
+  });
+
+  el('form-task').addEventListener('submit', async e => {
+    e.preventDefault();
+    const inizio = el('tk-inizio').value, fine = el('tk-fine').value;
+    if (fine < inizio) { alert('La data di fine precede quella di inizio'); return; }
+    await api('POST', '/api/tasks', {
+      nome: el('tk-nome').value, data_inizio: inizio, data_fine: fine, colore: el('tk-colore').value,
+    });
+    el('tk-nome').value = '';
+    el('tk-nome').focus();
+    await reloadTasks();
+  });
+  el('gantt-zoom-in').addEventListener('click', () => {
+    state.ganttDayWidth = Math.min(60, state.ganttDayWidth + 6); renderLavori();
+  });
+  el('gantt-zoom-out').addEventListener('click', () => {
+    state.ganttDayWidth = Math.max(6, state.ganttDayWidth - 6); renderLavori();
+  });
+
+  // aggiunta multipla attività
+  el('tk-bulk-open').addEventListener('click', () => {
+    el('tk-bulk-card').hidden = false;
+    el('tk-csv-card').hidden = true;
+    if (!el('tbl-tk-bulk').querySelector('tbody tr')) for (let i = 0; i < 3; i++) tkBulkAddRow();
+  });
+  el('tk-bulk-add-row').addEventListener('click', tkBulkAddRow);
+  el('tk-bulk-save').addEventListener('click', tkBulkSave);
+  el('tk-bulk-cancel').addEventListener('click', () => { el('tk-bulk-card').hidden = true; });
+  el('tbl-tk-bulk').addEventListener('click', e => {
+    if (e.target.closest('.tb-del')) { e.preventDefault(); e.target.closest('tr').remove(); }
+  });
+
+  // import CSV attività
+  el('tk-csv-open').addEventListener('click', () => {
+    el('tk-csv-card').hidden = false;
+    el('tk-bulk-card').hidden = true;
+  });
+  el('tk-csv-pick').addEventListener('click', () => el('tk-csv-file').click());
+  el('tk-csv-file').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    el('tk-csv-status').textContent = file.name;
+    await importTasksCsv(file);
+    e.target.value = '';
+  });
+
+  // finestra date del Gantt: preset relativi
+  document.querySelectorAll('.grng').forEach(btn => btn.addEventListener('click', () => {
+    setGanttRange(btn.dataset.range);
+  }));
+  // finestra date del Gantt: date esatte
+  el('gantt-from').addEventListener('change', () => {
+    state.ganttFrom = el('gantt-from').value || null;
+    state.ganttRangePreset = 'custom'; renderLavori();
+  });
+  el('gantt-to').addEventListener('change', () => {
+    state.ganttTo = el('gantt-to').value || null;
+    state.ganttRangePreset = 'custom'; renderLavori();
   });
 
   el('btn-export').addEventListener('click', async () => {

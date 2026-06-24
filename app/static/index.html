@@ -17,6 +17,7 @@
     <nav class="tabs">
       <button data-tab="dashboard" class="active">Dashboard</button>
       <button data-tab="spese">Spese</button>
+      <button data-tab="lavori">Lavori</button>
       <button data-tab="dich730">730</button>
       <button data-tab="config">Configurazione</button>
     </nav>
@@ -145,6 +146,82 @@
           <thead><tr><th>Nome</th><th>Bonus</th><th>Categoria eco</th><th class="num">Totale speso</th><th class="num">di cui pagato</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
+      </article>
+    </section>
+
+    <!-- ===================== LAVORI ===================== -->
+    <section id="tab-lavori" class="tab" hidden>
+      <article class="form-card">
+        <h4>Nuova attività</h4>
+        <form id="form-task" class="inline-form">
+          <input type="text" id="tk-nome" placeholder="Attività (es. demolizioni)" required>
+          <input type="date" id="tk-inizio" required title="Data inizio">
+          <input type="date" id="tk-fine" required title="Data fine (inclusiva)">
+          <input type="color" id="tk-colore" value="#2563eb" title="Colore della barra">
+          <button type="submit">Aggiungi</button>
+          <button type="button" id="tk-bulk-open" class="secondary outline">➕ Aggiunta multipla</button>
+          <button type="button" id="tk-csv-open" class="secondary outline">⬆ Importa CSV</button>
+          <input type="file" id="tk-csv-file" accept=".csv,text/csv" hidden>
+        </form>
+      </article>
+      <article class="form-card" id="tk-bulk-card" hidden>
+        <h4>Aggiunta multipla attività</h4>
+        <table id="tbl-tk-bulk">
+          <thead><tr>
+            <th>Attività</th><th>Inizio</th><th>Fine</th><th>Colore</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="actions-row">
+          <button id="tk-bulk-add-row" class="secondary outline">+ riga</button>
+          <button id="tk-bulk-save">Salva tutte</button>
+          <button id="tk-bulk-cancel" class="secondary outline">Chiudi</button>
+        </div>
+      </article>
+      <article class="form-card" id="tk-csv-card" hidden>
+        <h4>Importa attività da CSV</h4>
+        <p class="muted small">Colonne: <code>nome,inizio,fine[,colore]</code> — date in formato <code>AAAA-MM-GG</code>.
+          La prima riga può essere un'intestazione (viene riconosciuta e saltata). Esempio:</p>
+        <pre class="csv-example">nome,inizio,fine,colore
+Demolizioni,2026-03-01,2026-03-10,#dc2626
+Impianti,2026-03-11,2026-03-25,#2563eb</pre>
+        <div class="actions-row">
+          <button id="tk-csv-pick" class="secondary outline">Scegli file CSV…</button>
+          <span id="tk-csv-status" class="muted small"></span>
+        </div>
+      </article>
+      <article>
+        <table id="tbl-tasks" class="responsive-tbl">
+          <thead><tr>
+            <th>Attività</th><th>Inizio</th><th>Fine</th>
+            <th title="Giorni lavorativi (esclusi sabato e domenica, estremi inclusi)">Durata</th>
+            <th title="Attività che devono finire prima (finish-to-start)">Dipende da</th>
+            <th>Colore</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </article>
+      <article id="gantt-card">
+        <div class="gantt-toolbar">
+          <h4>Cronoprogramma</h4>
+          <div class="gantt-controls">
+            <div class="gantt-range" title="Finestra di date mostrata">
+              <button class="grng" data-range="all">Tutto</button>
+              <button class="grng" data-range="month">Mese</button>
+              <button class="grng" data-range="quarter">Trimestre</button>
+              <button class="grng" data-range="year">Anno</button>
+            </div>
+            <label class="gantt-dates">Da <input type="date" id="gantt-from"> a <input type="date" id="gantt-to"></label>
+            <div class="gantt-zoom">
+              <span class="muted small">Zoom</span>
+              <button id="gantt-zoom-out" class="icon-btn" title="Riduci">−</button>
+              <button id="gantt-zoom-in" class="icon-btn" title="Ingrandisci">+</button>
+            </div>
+          </div>
+        </div>
+        <p class="muted small">Trascina il corpo della barra per spostare l'attività, i bordi per cambiarne inizio/fine.
+          Le frecce mostrano le dipendenze; in rosso quelle violate (un'attività inizia prima della fine di chi la precede).</p>
+        <div id="gantt"></div>
       </article>
     </section>
 

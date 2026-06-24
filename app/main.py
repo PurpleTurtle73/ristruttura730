@@ -184,6 +184,68 @@ def delete_prior_deduction(did: int):
     return {"ok": True}
 
 
+# ---------- attività / cronoprogramma (Gantt) ----------
+
+def _crea_ciclo(conn, tid: int, predecessori: list[int]) -> bool:
+    """True se impostare questi predecessori per tid crea una dipendenza circolare."""
+    graph = {r["id"]: db._parse_ids(r["predecessori"]) for r in conn.execute("SELECT id, predecessori FROM tasks")}
+    graph[tid] = predecessori
+    # un ciclo esiste se, risalendo i predecessori, si ritorna a tid
+    visti = set()
+    stack = list(predecessori)
+    while stack:
+        n = stack.pop()
+        if n == tid:
+            return True
+        if n in visti:
+            continue
+        visti.add(n)
+        stack.extend(graph.get(n, []))
+    return False
+
+
+@app.get("/api/tasks")
+def get_tasks():
+    with db.connect() as conn:
+        return db.list_tasks(conn)
+
+
+@app.post("/api/tasks")
+def add_task(body: dict = Body(...)):
+    with db.connect() as conn:
+        tid = db.create_task(conn, body)
+        return {"id": tid}
+
+
+@app.post("/api/tasks/bulk")
+def add_tasks_bulk(body: list[dict] = Body(...)):
+    ids = []
+    with db.connect() as conn:
+        for t in body:
+            ids.append(db.create_task(conn, t))
+    return {"ids": ids}
+
+
+@app.put("/api/tasks/{tid}")
+def edit_task(tid: int, body: dict = Body(...)):
+    with db.connect() as conn:
+        if "predecessori" in body:
+            preds = db._parse_ids(db._clean_predecessori(body["predecessori"]))
+            if tid in preds:
+                raise HTTPException(400, "Un'attività non può dipendere da sé stessa")
+            if _crea_ciclo(conn, tid, preds):
+                raise HTTPException(400, "Dipendenza circolare non ammessa")
+        db.update_task(conn, tid, body)
+    return {"ok": True}
+
+
+@app.delete("/api/tasks/{tid}")
+def remove_task(tid: int):
+    with db.connect() as conn:
+        db.delete_task(conn, tid)
+    return {"ok": True}
+
+
 # ---------- categorie eco ----------
 
 @app.get("/api/eco-categories")
