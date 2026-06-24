@@ -684,6 +684,38 @@ window.removeDep = async (id, predId) => {
   await api('PUT', `/api/tasks/${id}`, { predecessori: preds.join(',') });
   await reloadTasks();
 };
+// riordino attività via trascinamento (pointer events: ok anche touch)
+function bindTaskDrag(tbody) {
+  let dr = null;
+  tbody.addEventListener('pointerdown', e => {
+    const grip = e.target.closest('.row-grip');
+    if (!grip) return;
+    const tr = grip.closest('tr');
+    dr = { tr };
+    tr.classList.add('dragging-row');
+    tr.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  });
+  tbody.addEventListener('pointermove', e => {
+    if (!dr) return;
+    const rows = [...tbody.querySelectorAll('tr')];
+    const after = rows.find(r => r !== dr.tr && e.clientY < r.getBoundingClientRect().top + r.offsetHeight / 2);
+    if (after) tbody.insertBefore(dr.tr, after);
+    else tbody.appendChild(dr.tr);
+  });
+  const end = async () => {
+    if (!dr) return;
+    const d = dr; dr = null;
+    d.tr.classList.remove('dragging-row');
+    const ids = [...tbody.querySelectorAll('tr')].map(r => Number(r.dataset.id));
+    const attuale = state.tasks.map(t => t.id);
+    if (ids.join() === attuale.join()) return;   // nessun cambiamento
+    await api('POST', '/api/tasks/reorder', { ids });
+    await reloadTasks();
+  };
+  tbody.addEventListener('pointerup', end);
+  tbody.addEventListener('pointercancel', end);
+}
 
 /* --- aggiunta multipla attività --- */
 function tkBulkRowHtml() {
@@ -759,14 +791,18 @@ function renderLavori() {
   if (!el('tk-fine').value) el('tk-fine').value = oggi;
 
   const nomeById = id => { const t = tasks.find(x => x.id === id); return t ? t.nome : ('#' + id); };
-  el('tbl-tasks').querySelector('tbody').innerHTML = tasks.map(t => {
+  el('tbl-tasks').querySelector('tbody').innerHTML = tasks.map((t, idx) => {
     const preds = parsePreds(t.predecessori);
     const chips = preds.map(pid =>
       `<span class="dep-chip">${esc(nomeById(pid))}<button onclick="removeDep(${t.id},${pid})" title="Rimuovi">×</button></span>`).join('');
     const opts = tasks.filter(o => o.id !== t.id && !preds.includes(o.id))
       .map(o => `<option value="${o.id}">${esc(o.nome)}</option>`).join('');
     const dur = giorniLavorativi(t.data_inizio, t.data_fine);
-    return `<tr>
+    return `<tr data-id="${t.id}">
+      <td data-l="#" class="cell-ordine">
+        <span class="row-grip" title="Trascina per riordinare">⠿</span>
+        <span class="ord-num">${idx + 1}</span>
+      </td>
       <td data-l="Attività"><input type="text" value="${esc(t.nome)}" onchange="saveTaskInline(${t.id},'nome',this.value)"></td>
       <td data-l="Inizio"><input type="date" value="${t.data_inizio}" onchange="saveTaskInline(${t.id},'data_inizio',this.value)"></td>
       <td data-l="Fine"><input type="date" value="${t.data_fine}" onchange="saveTaskInline(${t.id},'data_fine',this.value)"></td>
@@ -1451,6 +1487,9 @@ function bindEvents() {
     await importTasksCsv(file);
     e.target.value = '';
   });
+
+  // riordino attività via trascinamento (delega sul tbody stabile)
+  bindTaskDrag(el('tbl-tasks').querySelector('tbody'));
 
   // export Gantt
   el('gantt-png').addEventListener('click', () => exportGantt('png'));

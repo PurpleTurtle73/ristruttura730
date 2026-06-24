@@ -288,6 +288,13 @@ tr.muted td { opacity: .55; }
 .lv-handle:hover::before { background: #2563eb; }
 [data-theme=dark] .lv-handle::before { background: #3a434f; }
 
+.cell-ordine { white-space: nowrap; }
+.cell-ordine .row-grip { cursor: grab; color: #aab1bb; font-size: 1rem; touch-action: none; user-select: none; padding: 0 .15rem; }
+.cell-ordine .row-grip:hover { color: #2563eb; }
+.cell-ordine .ord-num { display: inline-block; min-width: 1.2em; text-align: right; color: #888; font-size: .8rem; }
+#tbl-tasks tr.dragging-row { background: #e8f0fe; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+[data-theme=dark] #tbl-tasks tr.dragging-row { background: #1c2942; }
+
 .gantt-export { display: flex; gap: .3rem; }
 .gantt-export button { margin: 0; width: auto; padding: .25rem .6rem; font-size: .8rem; }
 

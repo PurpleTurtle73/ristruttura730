@@ -239,6 +239,12 @@ def update_task(conn: sqlite3.Connection, tid: int, data: dict) -> None:
     conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", (*vals, tid))
 
 
+def reorder_tasks(conn: sqlite3.Connection, ids: list[int]) -> None:
+    """Riassegna il campo ordine secondo la sequenza di id passata."""
+    for idx, tid in enumerate(ids):
+        conn.execute("UPDATE tasks SET ordine = ? WHERE id = ?", (idx, tid))
+
+
 def delete_task(conn: sqlite3.Connection, tid: int) -> None:
     conn.execute("DELETE FROM tasks WHERE id = ?", (tid,))
     # rimuovi il riferimento dai predecessori delle altre attività

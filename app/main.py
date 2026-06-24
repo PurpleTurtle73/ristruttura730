@@ -226,6 +226,13 @@ def add_tasks_bulk(body: list[dict] = Body(...)):
     return {"ids": ids}
 
 
+@app.post("/api/tasks/reorder")
+def reorder_tasks(body: dict = Body(...)):
+    with db.connect() as conn:
+        db.reorder_tasks(conn, [int(i) for i in body.get("ids", [])])
+    return {"ok": True}
+
+
 @app.put("/api/tasks/{tid}")
 def edit_task(tid: int, body: dict = Body(...)):
     with db.connect() as conn:

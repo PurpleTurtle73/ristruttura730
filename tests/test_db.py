@@ -146,6 +146,16 @@ def test_delete_task_rimuove_riferimenti(tmp_db):
     assert tasks[0]["predecessori"] == ""
 
 
+def test_reorder_tasks(tmp_db):
+    with db.connect() as conn:
+        a = db.create_task(conn, {"nome": "A", "data_inizio": "2026-03-01", "data_fine": "2026-03-02"})
+        b = db.create_task(conn, {"nome": "B", "data_inizio": "2026-03-03", "data_fine": "2026-03-04"})
+        c = db.create_task(conn, {"nome": "C", "data_inizio": "2026-03-05", "data_fine": "2026-03-06"})
+        db.reorder_tasks(conn, [c, a, b])           # nuovo ordine: C, A, B
+        ordine = [t["nome"] for t in db.list_tasks(conn)]
+    assert ordine == ["C", "A", "B"]
+
+
 def test_export_import_include_tasks(tmp_db):
     with db.connect() as conn:
         db.create_task(conn, {"nome": "Tinteggiatura", "data_inizio": "2026-04-01", "data_fine": "2026-04-07"})
