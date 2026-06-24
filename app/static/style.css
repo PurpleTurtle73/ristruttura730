@@ -320,7 +320,10 @@ tr.muted td { opacity: .55; }
 .gantt-month { box-sizing: border-box; border-left: 1px solid #d7dbe0; font-size: .72rem; font-weight: 600; color: #555; padding: .15rem .3rem; text-transform: uppercase; white-space: nowrap; overflow: hidden; }
 .gantt-days { display: flex; }
 .gantt-day { box-sizing: border-box; border-left: 1px solid #e6e9ee; font-size: .62rem; color: #999; text-align: center; padding: .1rem 0; }
-.gantt-day.we { background: #e9edf3; color: #b9402e; }
+.gantt-day.we { background: rgba(220,38,38,.10); color: #b9402e; }
+.gantt-we-col { position: absolute; top: 0; bottom: 0; background: rgba(220,38,38,.07); pointer-events: none; }
+[data-theme=dark] .gantt-day.we { background: rgba(248,113,113,.14); color: #f0a090; }
+[data-theme=dark] .gantt-we-col { background: rgba(248,113,113,.09); }
 .gantt-rows { position: relative; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(100% - 1px), #e6e9ee calc(100% - 1px)); }
 .gantt-row { position: relative; }
 .gantt-row.alt { background: rgba(37,99,235,.045); }
