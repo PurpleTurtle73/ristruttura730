@@ -969,6 +969,14 @@ function oggiIso() { return new Date().toISOString().slice(0, 10); }
 /* --- export Gantt: SVG autonomo -> PNG / PDF --- */
 const xmlEsc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+// palette dell'export coerente col tema attivo (chiaro/scuro)
+function ganttPalette() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  return dark
+    ? { bg: '#161b22', head: '#1b222c', headLine: '#2a313c', weekend: '#1b2533', grid: '#262d37', alt: '#1c2533', month: '#9aa4b2', day: '#6b7585', dep: '#64748b', depViol: '#f87171', today: '#f87171', title: '#e6e9ee', outside: '#cdd3da', diaStroke: '#161b22' }
+    : { bg: '#ffffff', head: '#f1f4f9', headLine: '#dfe3e9', weekend: '#eef0f3', grid: '#e6e9ee', alt: '#f2f5fd', month: '#555555', day: '#999999', dep: '#94a3b8', depViol: '#dc2626', today: '#dc2626', title: '#222222', outside: '#333333', diaStroke: '#ffffff' };
+}
+
 // genera un SVG autonomo (stili inline) dell'intero piano, indipendente dalla finestra mostrata
 function buildGanttSvg() {
   const tasks = state.tasks;
@@ -980,51 +988,47 @@ function buildGanttSvg() {
   s = addDays(s, -2); e = addDays(e, 2);
   const N = dayDiff(s, e) + 1, dayW = N * dw, H = HEAD + tasks.length * ROW;
   const CW = 6.4; // larghezza media carattere a 11px
+  const P = ganttPalette();
 
   // intestazione opzionale "Piano lavori <input>"
   const titolo = ('Piano lavori ' + (state.ganttTitolo || '')).trim();
   const hasTitle = !!(state.ganttTitolo || '').trim();
   const titleBand = hasTitle ? 30 : 0;
 
-  // larghezza necessaria: i nomi che non entrano nella barra vengono scritti a fianco
+  // barre a durata reale: il nome parte dentro la barra e, se è corta, sfora a destra
+  const dur = t => (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
   let needW = dayW;
-  tasks.forEach((t, idx) => {
-    const nameW = (t.nome || '').length * CW;
-    if (t.tipo === 'milestone') {
-      const cx = dayDiff(s, t.data_inizio) * dw + dw / 2;
-      needW = Math.max(needW, cx + 10 + nameW + 6);
-    } else {
-      const left = dayDiff(s, t.data_inizio) * dw;
-      const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
-      if (nameW + 10 > width) needW = Math.max(needW, left + width + 4 + nameW + 6);
-    }
+  tasks.forEach(t => {
+    const left = dayDiff(s, t.data_inizio) * dw;
+    if (t.tipo === 'milestone') needW = Math.max(needW, left + dw / 2 + 10 + (t.nome || '').length * CW + 6);
+    else needW = Math.max(needW, left + 5 + (t.nome || '').length * CW + 6);
   });
   const W = Math.max(dayW, needW);
 
   const parts = [];
-  parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`);
+  parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="${P.bg}"/>`);
   // shading weekend a tutta altezza
   for (let k = 0; k < N; k++) {
     const g = isoToDate(addDays(s, k)).getUTCDay();
-    if (g === 0 || g === 6) parts.push(`<rect x="${k * dw}" y="${HEAD}" width="${dw}" height="${H - HEAD}" fill="#eef0f3"/>`);
+    if (g === 0 || g === 6) parts.push(`<rect x="${k * dw}" y="${HEAD}" width="${dw}" height="${H - HEAD}" fill="${P.weekend}"/>`);
   }
   // gridlines giorni
-  for (let k = 0; k <= N; k++) parts.push(`<line x1="${k * dw}" y1="${HEAD}" x2="${k * dw}" y2="${H}" stroke="#e6e9ee" stroke-width="1"/>`);
+  for (let k = 0; k <= N; k++) parts.push(`<line x1="${k * dw}" y1="${HEAD}" x2="${k * dw}" y2="${H}" stroke="${P.grid}" stroke-width="1"/>`);
   // righe alternate
-  tasks.forEach((t, idx) => { if (idx % 2) parts.push(`<rect x="0" y="${HEAD + idx * ROW}" width="${W}" height="${ROW}" fill="#f2f5fd"/>`); });
+  tasks.forEach((t, idx) => { if (idx % 2) parts.push(`<rect x="0" y="${HEAD + idx * ROW}" width="${W}" height="${ROW}" fill="${P.alt}"/>`); });
   // header
-  parts.push(`<rect x="0" y="0" width="${W}" height="${HEAD}" fill="#f1f4f9"/>`);
-  parts.push(`<line x1="0" y1="${HEAD}" x2="${W}" y2="${HEAD}" stroke="#dfe3e9" stroke-width="1"/>`);
+  parts.push(`<rect x="0" y="0" width="${W}" height="${HEAD}" fill="${P.head}"/>`);
+  parts.push(`<line x1="0" y1="${HEAD}" x2="${W}" y2="${HEAD}" stroke="${P.headLine}" stroke-width="1"/>`);
   let i = 0;
   while (i < N) {
     const d = isoToDate(addDays(s, i)), m = d.getUTCMonth(), y = d.getUTCFullYear();
     let span = 0;
     while (i + span < N) { const dd = isoToDate(addDays(s, i + span)); if (dd.getUTCMonth() !== m || dd.getUTCFullYear() !== y) break; span++; }
-    parts.push(`<text x="${i * dw + 4}" y="13" font-size="11" font-weight="700" fill="#555">${MESI_BREVI[m]} ${y}</text>`);
+    parts.push(`<text x="${i * dw + 4}" y="13" font-size="11" font-weight="700" fill="${P.month}">${MESI_BREVI[m]} ${y}</text>`);
     i += span;
   }
   if (dw >= 16) for (let k = 0; k < N; k++) {
-    parts.push(`<text x="${k * dw + dw / 2}" y="29" font-size="9" fill="#999" text-anchor="middle">${isoToDate(addDays(s, k)).getUTCDate()}</text>`);
+    parts.push(`<text x="${k * dw + dw / 2}" y="29" font-size="9" fill="${P.day}" text-anchor="middle">${isoToDate(addDays(s, k)).getUTCDate()}</text>`);
   }
   // dipendenze
   const rowOf = id => tasks.findIndex(t => t.id === id);
@@ -1036,44 +1040,44 @@ function buildGanttSvg() {
       const x2 = dayDiff(s, t.data_inizio) * dw, y2 = HEAD + idx * ROW + ROW / 2;
       const viol = dayDiff(pred.data_fine, t.data_inizio) <= 0;
       const midx = Math.max(x1 + 8, x2 - 8);
-      const col = viol ? '#dc2626' : '#94a3b8';
+      const col = viol ? P.depViol : P.dep;
       const dash = viol ? ' stroke-dasharray="4 3"' : '';
       parts.push(`<path d="M${x1},${y1} H${midx} V${y2} H${x2}" fill="none" stroke="${col}" stroke-width="${viol ? 2 : 1.5}"${dash}/>`);
       parts.push(`<path d="M${x2 - 6},${y2 - 3.5} L${x2},${y2} L${x2 - 6},${y2 + 3.5} z" fill="${col}"/>`);
     });
   });
-  // barre, etichette e checkpoint (nomi sempre interi: dentro la barra se entrano, altrimenti a fianco)
+  // barre, etichette e checkpoint
   tasks.forEach((t, idx) => {
     if (t.tipo === 'milestone') {
       const cx = dayDiff(s, t.data_inizio) * dw + dw / 2;
       const cy = HEAD + idx * ROW + ROW / 2;
       const r = 7;
       parts.push(`<line x1="${cx}" y1="${HEAD}" x2="${cx}" y2="${H}" stroke="${t.colore}" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>`);
-      parts.push(`<path d="M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} z" fill="${t.colore}" stroke="#fff" stroke-width="1"/>`);
-      parts.push(`<text x="${cx + r + 3}" y="${cy + 4}" font-size="11" font-weight="600" fill="#333">${xmlEsc(t.nome || '')}</text>`);
+      parts.push(`<path d="M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} z" fill="${t.colore}" stroke="${P.diaStroke}" stroke-width="1"/>`);
+      parts.push(`<text x="${cx + r + 3}" y="${cy + 4}" font-size="11" font-weight="600" fill="${P.outside}">${xmlEsc(t.nome || '')}</text>`);
       return;
     }
     const left = dayDiff(s, t.data_inizio) * dw;
-    const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+    const width = dur(t);
     const top = HEAD + idx * ROW + (ROW - BAR) / 2;
     const nome = t.nome || '';
     parts.push(`<rect x="${left}" y="${top}" width="${width}" height="${BAR}" rx="5" fill="${t.colore}"/>`);
-    if (nome.length * CW + 10 <= width) {
-      const txt = testoPerSfondo(t.colore);
-      parts.push(`<text x="${left + 5}" y="${top + BAR / 2 + 4}" font-size="11" font-weight="600" fill="${txt.color}">${xmlEsc(nome)}</text>`);
-    } else {
-      parts.push(`<text x="${left + width + 4}" y="${top + BAR / 2 + 4}" font-size="11" font-weight="600" fill="#333">${xmlEsc(nome)}</text>`);
+    if (nome) {
+      // entra nella barra -> colore a contrasto; sfora -> colore del tema sul fondo
+      const dentro = nome.length * CW + 10 <= width;
+      const col = dentro ? testoPerSfondo(t.colore).color : P.outside;
+      parts.push(`<text x="${left + 5}" y="${top + BAR / 2 + 4}" font-size="11" font-weight="600" fill="${col}">${xmlEsc(nome)}</text>`);
     }
   });
   // linea oggi
   const td = dayDiff(s, oggiIso());
-  if (td >= 0 && td < N) parts.push(`<line x1="${td * dw + dw / 2}" y1="0" x2="${td * dw + dw / 2}" y2="${H}" stroke="#dc2626" stroke-width="2" opacity="0.6"/>`);
+  if (td >= 0 && td < N) parts.push(`<line x1="${td * dw + dw / 2}" y1="0" x2="${td * dw + dw / 2}" y2="${H}" stroke="${P.today}" stroke-width="2" opacity="0.6"/>`);
 
   const totalH = H + titleBand;
   const titleSvg = hasTitle
-    ? `<text x="6" y="20" font-size="16" font-weight="700" fill="#222">${xmlEsc(titolo)}</text>` : '';
+    ? `<text x="6" y="20" font-size="16" font-weight="700" fill="${P.title}">${xmlEsc(titolo)}</text>` : '';
   const str = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${totalH}" viewBox="0 0 ${W} ${totalH}" font-family="system-ui,Segoe UI,Roboto,sans-serif">` +
-    `<rect x="0" y="0" width="${W}" height="${totalH}" fill="#ffffff"/>${titleSvg}` +
+    `<rect x="0" y="0" width="${W}" height="${totalH}" fill="${P.bg}"/>${titleSvg}` +
     `<g transform="translate(0,${titleBand})">${parts.join('')}</g></svg>`;
   return { str, w: W, h: totalH };
 }
@@ -1136,19 +1140,15 @@ function buildGanttPdf() {
   s = addDays(s, -2); e = addDays(e, 2);
   const N = dayDiff(s, e) + 1, dayW = N * dw, H = HEAD + tasks.length * ROW;
   const CW = 6.2; // larghezza media carattere a 10px
+  const P = ganttPalette();
 
-  // larghezza necessaria: nomi che non entrano nella barra scritti a fianco
+  // barre a durata reale: il nome parte dentro e sfora a destra se la barra è corta
+  const dur = t => (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
   let needW = dayW;
   tasks.forEach(t => {
-    const nameW = (t.nome || '').length * CW;
-    if (t.tipo === 'milestone') {
-      const cx = dayDiff(s, t.data_inizio) * dw + dw / 2;
-      needW = Math.max(needW, cx + 10 + nameW + 6);
-    } else {
-      const left = dayDiff(s, t.data_inizio) * dw;
-      const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
-      if (nameW + 8 > width) needW = Math.max(needW, left + width + 4 + nameW + 6);
-    }
+    const left = dayDiff(s, t.data_inizio) * dw;
+    if (t.tipo === 'milestone') needW = Math.max(needW, left + dw / 2 + 10 + (t.nome || '').length * CW + 6);
+    else needW = Math.max(needW, left + 5 + (t.nome || '').length * CW + 6);
   });
   const W = Math.max(dayW, needW);
 
@@ -1168,7 +1168,9 @@ function buildGanttPdf() {
   const SZ = px => (px * S).toFixed(2);
 
   const ops = [];
-  if (hasTitle) ops.push(`BT /F2 16 Tf ${pdfCol('#222222')} rg ${margin.toFixed(2)} ${(pageH - margin - 12).toFixed(2)} Td (${pdfStr(titolo)}) Tj ET`);
+  // sfondo pagina coerente col tema
+  ops.push(`${pdfCol(P.bg)} rg 0 0 ${pageW} ${pageH} re f`);
+  if (hasTitle) ops.push(`BT /F2 16 Tf ${pdfCol(P.title)} rg ${margin.toFixed(2)} ${(pageH - margin - 12).toFixed(2)} Td (${pdfStr(titolo)}) Tj ET`);
   const rect = (x, y, w, h, hex) => ops.push(`${pdfCol(hex)} rg ${X(x)} ${Y(y + h)} ${SZ(w)} ${SZ(h)} re f`);
   const line = (x1, y1, x2, y2, hex, wpt, dash) => ops.push(
     `${dash ? '[' + dash + '] 0 d ' : '[] 0 d '}${pdfCol(hex)} RG ${(wpt).toFixed(2)} w ${X(x1)} ${Y(y1)} m ${X(x2)} ${Y(y2)} l S`);
@@ -1176,25 +1178,25 @@ function buildGanttPdf() {
   const text = (x, y, str, px, hex) => ops.push(`BT /F1 ${SZ(px)} Tf ${pdfCol(hex)} rg ${X(x)} ${Y(y)} Td (${pdfStr(str)}) Tj ET`);
 
   // weekend
-  for (let k = 0; k < N; k++) { const g = isoToDate(addDays(s, k)).getUTCDay(); if (g === 0 || g === 6) rect(k * dw, HEAD, dw, H - HEAD, '#eef0f3'); }
+  for (let k = 0; k < N; k++) { const g = isoToDate(addDays(s, k)).getUTCDay(); if (g === 0 || g === 6) rect(k * dw, HEAD, dw, H - HEAD, P.weekend); }
   // gridlines giorni
-  for (let k = 0; k <= N; k++) line(k * dw, HEAD, k * dw, H, '#e6e9ee', 0.5);
+  for (let k = 0; k <= N; k++) line(k * dw, HEAD, k * dw, H, P.grid, 0.5);
   // righe alternate
-  tasks.forEach((t, idx) => { if (idx % 2) rect(0, HEAD + idx * ROW, W, ROW, '#f2f5fd'); });
+  tasks.forEach((t, idx) => { if (idx % 2) rect(0, HEAD + idx * ROW, W, ROW, P.alt); });
   // linee verticali dei checkpoint (sotto l'header)
   tasks.forEach(t => { if (t.tipo === 'milestone') { const cx = dayDiff(s, t.data_inizio) * dw + dw / 2; line(cx, HEAD, cx, H, t.colore, 0.6, '3 3'); } });
   // header
-  rect(0, 0, W, HEAD, '#f1f4f9');
-  line(0, HEAD, W, HEAD, '#dfe3e9', 0.6);
+  rect(0, 0, W, HEAD, P.head);
+  line(0, HEAD, W, HEAD, P.headLine, 0.6);
   let i = 0;
   while (i < N) {
     const d = isoToDate(addDays(s, i)), m = d.getUTCMonth(), y = d.getUTCFullYear();
     let span = 0;
     while (i + span < N) { const dd = isoToDate(addDays(s, i + span)); if (dd.getUTCMonth() !== m || dd.getUTCFullYear() !== y) break; span++; }
-    text(i * dw + 3, 12, `${MESI_BREVI[m]} ${y}`, 10, '#555555');
+    text(i * dw + 3, 12, `${MESI_BREVI[m]} ${y}`, 10, P.month);
     i += span;
   }
-  if (dw * S >= 12) for (let k = 0; k < N; k++) text(k * dw + dw / 2 - 3, 28, String(isoToDate(addDays(s, k)).getUTCDate()), 8, '#999999');
+  if (dw * S >= 12) for (let k = 0; k < N; k++) text(k * dw + dw / 2 - 3, 28, String(isoToDate(addDays(s, k)).getUTCDate()), 8, P.day);
   // dipendenze
   const rowOf = id => tasks.findIndex(t => t.id === id);
   tasks.forEach((t, idx) => {
@@ -1204,7 +1206,7 @@ function buildGanttPdf() {
       const x1 = (dayDiff(s, pred.data_fine) + 1) * dw, y1 = HEAD + pi * ROW + ROW / 2;
       const x2 = dayDiff(s, t.data_inizio) * dw, y2 = HEAD + idx * ROW + ROW / 2;
       const viol = dayDiff(pred.data_fine, t.data_inizio) <= 0;
-      const col = viol ? '#dc2626' : '#94a3b8';
+      const col = viol ? P.depViol : P.dep;
       const midx = Math.max(x1 + 8, x2 - 8);
       line(x1, y1, midx, y1, col, viol ? 1.2 : 0.9, viol ? '3 2' : null);
       line(midx, y1, midx, y2, col, viol ? 1.2 : 0.9, viol ? '3 2' : null);
@@ -1217,23 +1219,22 @@ function buildGanttPdf() {
     if (t.tipo === 'milestone') {
       const cx = dayDiff(s, t.data_inizio) * dw + dw / 2, cy = HEAD + idx * ROW + ROW / 2, r = 7;
       poly([[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]], t.colore);
-      text(cx + r + 2, cy + 3.5, t.nome || '', 10, '#333333');
+      text(cx + r + 2, cy + 3.5, t.nome || '', 10, P.outside);
       return;
     }
     const left = dayDiff(s, t.data_inizio) * dw;
-    const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+    const width = dur(t);
     const top = HEAD + idx * ROW + (ROW - BAR) / 2;
     const nome = t.nome || '';
     rect(left, top, width, BAR, t.colore);
-    if (nome.length * CW + 8 <= width) {
-      text(left + 4, top + BAR / 2 + 3.5, nome, 10, testoPerSfondo(t.colore).color);   // dentro la barra
-    } else {
-      text(left + width + 4, top + BAR / 2 + 3.5, nome, 10, '#333333');                // a fianco, intero
+    if (nome) {
+      const dentro = nome.length * CW + 8 <= width;
+      text(left + 4, top + BAR / 2 + 3.5, nome, 10, dentro ? testoPerSfondo(t.colore).color : P.outside);
     }
   });
   // linea oggi
   const td = dayDiff(s, oggiIso());
-  if (td >= 0 && td < N) line(td * dw + dw / 2, 0, td * dw + dw / 2, H, '#dc2626', 1.2);
+  if (td >= 0 && td < N) line(td * dw + dw / 2, 0, td * dw + dw / 2, H, P.today, 1.2);
 
   const content = 'q\n' + ops.join('\n') + '\nQ\n';
   const enc = str => { const a = new Uint8Array(str.length); for (let j = 0; j < str.length; j++) a[j] = str.charCodeAt(j) & 0xff; return a; };
@@ -1266,7 +1267,12 @@ async function exportGantt(formato) {
     }
     const svg = buildGanttSvg();
     if (!svg) { alert('Nessuna attività da esportare.'); return; }
-    const canvas = await svgToCanvas(svg.str, svg.w, svg.h, 2);
+    if (formato === 'svg') {
+      downloadBlob(new Blob([svg.str], { type: 'image/svg+xml' }), `gantt-${data}.svg`);
+      return;
+    }
+    // PNG ad alta risoluzione (3×) per ridurre la sgranatura
+    const canvas = await svgToCanvas(svg.str, svg.w, svg.h, 3);
     canvas.toBlob(b => downloadBlob(b, `gantt-${data}.png`), 'image/png');
   } catch (err) {
     alert('Export non riuscito: ' + (err.message || err));
@@ -1685,6 +1691,7 @@ function bindEvents() {
     state.ganttTitolo = el('gantt-titolo').value;
     localStorage.setItem('ganttTitolo', state.ganttTitolo);
   });
+  el('gantt-svg').addEventListener('click', () => exportGantt('svg'));
   el('gantt-png').addEventListener('click', () => exportGantt('png'));
   el('gantt-pdf').addEventListener('click', () => exportGantt('pdf'));
 
