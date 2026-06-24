@@ -146,6 +146,16 @@ def test_delete_task_rimuove_riferimenti(tmp_db):
     assert tasks[0]["predecessori"] == ""
 
 
+def test_create_milestone_un_giorno(tmp_db):
+    with db.connect() as conn:
+        # data_fine diversa viene ignorata: il checkpoint è di un solo giorno
+        mid = db.create_task(conn, {"nome": "Fine lavori", "data_inizio": "2026-05-10",
+                                    "data_fine": "2026-05-20", "tipo": "milestone"})
+        t = next(x for x in db.list_tasks(conn) if x["id"] == mid)
+    assert t["tipo"] == "milestone"
+    assert t["data_inizio"] == t["data_fine"] == "2026-05-10"
+
+
 def test_reorder_tasks(tmp_db):
     with db.connect() as conn:
         a = db.create_task(conn, {"nome": "A", "data_inizio": "2026-03-01", "data_fine": "2026-03-02"})

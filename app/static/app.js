@@ -18,6 +18,7 @@ const state = {
   ganttFrom: null,    // finestra date esplicita (null = auto sui task)
   ganttTo: null,
   ganttRangePreset: 'all',
+  ganttTitolo: localStorage.getItem('ganttTitolo') || '',
 };
 
 function applyTheme(t) {
@@ -667,6 +668,12 @@ window.saveTaskInline = async (id, field, value) => {
   await api('PUT', `/api/tasks/${id}`, { [field]: value });
   await reloadTasks();
 };
+window.saveTaskDate = async (id, isMilestone, value) => {
+  // per un checkpoint inizio e fine coincidono
+  const body = isMilestone ? { data_inizio: value, data_fine: value } : { data_inizio: value };
+  await api('PUT', `/api/tasks/${id}`, body);
+  await reloadTasks();
+};
 window.deleteTask = async id => {
   if (!confirm("Eliminare l'attività?")) return;
   await api('DELETE', `/api/tasks/${id}`);
@@ -797,16 +804,17 @@ function renderLavori() {
       `<span class="dep-chip">${esc(nomeById(pid))}<button onclick="removeDep(${t.id},${pid})" title="Rimuovi">×</button></span>`).join('');
     const opts = tasks.filter(o => o.id !== t.id && !preds.includes(o.id))
       .map(o => `<option value="${o.id}">${esc(o.nome)}</option>`).join('');
+    const ms = t.tipo === 'milestone';
     const dur = giorniLavorativi(t.data_inizio, t.data_fine);
-    return `<tr data-id="${t.id}">
+    return `<tr data-id="${t.id}"${ms ? ' class="riga-ms"' : ''}>
       <td data-l="#" class="cell-ordine">
         <span class="row-grip" title="Trascina per riordinare">⠿</span>
         <span class="ord-num">${idx + 1}</span>
       </td>
-      <td data-l="Attività"><input type="text" value="${esc(t.nome)}" onchange="saveTaskInline(${t.id},'nome',this.value)"></td>
-      <td data-l="Inizio"><input type="date" value="${t.data_inizio}" onchange="saveTaskInline(${t.id},'data_inizio',this.value)"></td>
-      <td data-l="Fine"><input type="date" value="${t.data_fine}" onchange="saveTaskInline(${t.id},'data_fine',this.value)"></td>
-      <td data-l="Durata" class="num">${dur} gg</td>
+      <td data-l="Attività"><input type="text" value="${esc(t.nome)}" onchange="saveTaskInline(${t.id},'nome',this.value)">${ms ? ' <span class="ms-badge" title="Checkpoint: giorno singolo">◆</span>' : ''}</td>
+      <td data-l="${ms ? 'Giorno' : 'Inizio'}"><input type="date" value="${t.data_inizio}" onchange="saveTaskDate(${t.id}, ${ms}, this.value)"></td>
+      <td data-l="Fine">${ms ? '<span class="muted">—</span>' : `<input type="date" value="${t.data_fine}" onchange="saveTaskInline(${t.id},'data_fine',this.value)">`}</td>
+      <td data-l="Durata" class="num">${ms ? '<span class="muted">checkpoint</span>' : dur + ' gg'}</td>
       <td data-l="Dipende da"><div class="dep-cell">${chips}${opts
         ? `<select class="dep-add" onchange="if(this.value)addDep(${t.id},Number(this.value))"><option value="">+ dipendenza</option>${opts}</select>`
         : ''}</div></td>
@@ -870,9 +878,21 @@ function renderGantt(tasks) {
     dayCells += `<div class="gantt-day${we ? ' we' : ''}" style="width:${dw}px">${dd.getUTCDate()}</div>`;
   }
 
-  // righe + barre
-  let rowsHtml = '';
+  // righe + barre (e linee verticali dei checkpoint, a tutta altezza)
+  let rowsHtml = '', msLines = '';
   tasks.forEach((t, idx) => {
+    if (t.tipo === 'milestone') {
+      const cx = dayDiff(rangeStart, t.data_inizio) * dw + dw / 2;
+      const cy = (ROW - 16) / 2;
+      msLines += `<div class="gantt-ms-line" style="left:${cx}px;border-color:${t.colore}"></div>`;
+      rowsHtml += `<div class="gantt-row${idx % 2 ? ' alt' : ''}" style="height:${ROW}px">
+        <div class="gantt-ms" data-id="${t.id}" title="${esc(t.nome)} — checkpoint ${fmtData(t.data_inizio)}" style="left:${cx}px;top:${cy}px">
+          <span class="ms-diamond" style="background:${t.colore}"></span>
+          <span class="ms-name">${esc(t.nome)}</span>
+        </div>
+      </div>`;
+      return;
+    }
     const left = dayDiff(rangeStart, t.data_inizio) * dw;
     const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
     const txt = testoPerSfondo(t.colore);
@@ -918,13 +938,13 @@ function renderGantt(tasks) {
       <div class="gantt-days">${dayCells}</div>
     </div>
     <div class="gantt-rows" style="height:${tasks.length * ROW}px;background-size:${dw}px 100%">
-      ${svg}${rowsHtml}${todayLine}
+      ${svg}${msLines}${rowsHtml}${todayLine}
       <div class="gantt-hover" hidden><span class="gantt-hover-lbl"></span></div>
     </div>
   </div></div>`;
 
   const rows = g.querySelector('.gantt-rows');
-  bindGanttDrag(rows);
+  bindGanttDrag(rows, dw);
   bindGanttHover(rows, rangeStart, totalDays, dw);
 }
 
@@ -1000,8 +1020,18 @@ function buildGanttSvg() {
       parts.push(`<path d="M${x2 - 6},${y2 - 3.5} L${x2},${y2} L${x2 - 6},${y2 + 3.5} z" fill="${col}"/>`);
     });
   });
-  // barre + etichette
+  // barre, etichette e checkpoint
   tasks.forEach((t, idx) => {
+    if (t.tipo === 'milestone') {
+      const cx = dayDiff(s, t.data_inizio) * dw + dw / 2;
+      const cy = HEAD + idx * ROW + ROW / 2;
+      const r = 7;
+      // linea verticale a tutta altezza + diamante + nome
+      parts.push(`<line x1="${cx}" y1="${HEAD}" x2="${cx}" y2="${H}" stroke="${t.colore}" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>`);
+      parts.push(`<path d="M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} z" fill="${t.colore}" stroke="#fff" stroke-width="1"/>`);
+      parts.push(`<text x="${cx + r + 3}" y="${cy + 4}" font-size="11" font-weight="600" fill="#333">${xmlEsc(t.nome || '')}</text>`);
+      return;
+    }
     const left = dayDiff(s, t.data_inizio) * dw;
     const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
     const top = HEAD + idx * ROW + (ROW - BAR) / 2;
@@ -1049,43 +1079,153 @@ function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-// PDF a pagina singola con il Gantt come immagine JPEG (DCTDecode), senza librerie
-function jpegToPdf(dataUrl, iw, ih) {
-  const bin = atob(dataUrl.split(',')[1]);
-  const img = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) img[i] = bin.charCodeAt(i);
-  const W = (iw * 72 / 96).toFixed(2), H = (ih * 72 / 96).toFixed(2);
-  const enc = s => { const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; };
+// PDF VETTORIALE A4 orizzontale: il Gantt è disegnato con primitive (no immagine)
+function pdfCol(hex) {
+  let h = (hex || '').replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  if (h.length !== 6) return '0 0 0';
+  const r = parseInt(h.slice(0, 2), 16) / 255, g = parseInt(h.slice(2, 4), 16) / 255, b = parseInt(h.slice(4, 6), 16) / 255;
+  return `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)}`;
+}
+function pdfStr(s) {
+  let out = '';
+  for (const ch of String(s)) {
+    const c = ch.codePointAt(0);
+    if (ch === '(' || ch === ')' || ch === '\\') out += '\\' + ch;
+    else if (c < 32) out += ' ';
+    else if (c < 127) out += ch;
+    else if (c < 256) out += '\\' + c.toString(8).padStart(3, '0');
+    else out += '?';
+  }
+  return out;
+}
+
+function buildGanttPdf() {
+  const tasks = state.tasks;
+  if (!tasks.length) return null;
+  const dw = Math.max(20, state.ganttDayWidth);
+  const ROW = 30, BAR = 20, HEAD = 34;
+  let s = tasks[0].data_inizio, e = tasks[0].data_fine;
+  for (const t of tasks) { if (t.data_inizio < s) s = t.data_inizio; if (t.data_fine > e) e = t.data_fine; }
+  s = addDays(s, -2); e = addDays(e, 2);
+  const N = dayDiff(s, e) + 1, W = N * dw, H = HEAD + tasks.length * ROW;
+
+  // intestazione opzionale: "Piano lavori <input>"
+  const titolo = ('Piano lavori ' + (state.ganttTitolo || '')).trim();
+  const hasTitle = !!(state.ganttTitolo || '').trim();
+  const titleBand = hasTitle ? 30 : 0;
+
+  // A4 orizzontale, fit-to-page con margini (sotto l'eventuale titolo)
+  const pageW = 842, pageH = 595, margin = 22;
+  const topOff = margin + titleBand;
+  const availW = pageW - 2 * margin, availH = pageH - topOff - margin;
+  const S = Math.min(availW / W, availH / H);
+  const MX = (pageW - W * S) / 2, MY = topOff + (availH - H * S) / 2;
+  const X = x => (MX + x * S).toFixed(2);
+  const Y = y => (pageH - MY - y * S).toFixed(2); // origine PDF in basso a sinistra
+  const SZ = px => (px * S).toFixed(2);
+
+  const ops = [];
+  if (hasTitle) ops.push(`BT /F2 16 Tf ${pdfCol('#222222')} rg ${margin.toFixed(2)} ${(pageH - margin - 12).toFixed(2)} Td (${pdfStr(titolo)}) Tj ET`);
+  const rect = (x, y, w, h, hex) => ops.push(`${pdfCol(hex)} rg ${X(x)} ${Y(y + h)} ${SZ(w)} ${SZ(h)} re f`);
+  const line = (x1, y1, x2, y2, hex, wpt, dash) => ops.push(
+    `${dash ? '[' + dash + '] 0 d ' : '[] 0 d '}${pdfCol(hex)} RG ${(wpt).toFixed(2)} w ${X(x1)} ${Y(y1)} m ${X(x2)} ${Y(y2)} l S`);
+  const poly = (pts, hex) => ops.push(`${pdfCol(hex)} rg ${pts.map((p, i) => `${X(p[0])} ${Y(p[1])} ${i ? 'l' : 'm'}`).join(' ')} h f`);
+  const text = (x, y, str, px, hex) => ops.push(`BT /F1 ${SZ(px)} Tf ${pdfCol(hex)} rg ${X(x)} ${Y(y)} Td (${pdfStr(str)}) Tj ET`);
+
+  // weekend
+  for (let k = 0; k < N; k++) { const g = isoToDate(addDays(s, k)).getUTCDay(); if (g === 0 || g === 6) rect(k * dw, HEAD, dw, H - HEAD, '#eef0f3'); }
+  // gridlines giorni
+  for (let k = 0; k <= N; k++) line(k * dw, HEAD, k * dw, H, '#e6e9ee', 0.5);
+  // righe alternate
+  tasks.forEach((t, idx) => { if (idx % 2) rect(0, HEAD + idx * ROW, W, ROW, '#f2f5fd'); });
+  // linee verticali dei checkpoint (sotto l'header)
+  tasks.forEach(t => { if (t.tipo === 'milestone') { const cx = dayDiff(s, t.data_inizio) * dw + dw / 2; line(cx, HEAD, cx, H, t.colore, 0.6, '3 3'); } });
+  // header
+  rect(0, 0, W, HEAD, '#f1f4f9');
+  line(0, HEAD, W, HEAD, '#dfe3e9', 0.6);
+  let i = 0;
+  while (i < N) {
+    const d = isoToDate(addDays(s, i)), m = d.getUTCMonth(), y = d.getUTCFullYear();
+    let span = 0;
+    while (i + span < N) { const dd = isoToDate(addDays(s, i + span)); if (dd.getUTCMonth() !== m || dd.getUTCFullYear() !== y) break; span++; }
+    text(i * dw + 3, 12, `${MESI_BREVI[m]} ${y}`, 10, '#555555');
+    i += span;
+  }
+  if (dw * S >= 12) for (let k = 0; k < N; k++) text(k * dw + dw / 2 - 3, 28, String(isoToDate(addDays(s, k)).getUTCDate()), 8, '#999999');
+  // dipendenze
+  const rowOf = id => tasks.findIndex(t => t.id === id);
+  tasks.forEach((t, idx) => {
+    parsePreds(t.predecessori).forEach(pid => {
+      const pi = rowOf(pid); if (pi < 0) return;
+      const pred = tasks[pi];
+      const x1 = (dayDiff(s, pred.data_fine) + 1) * dw, y1 = HEAD + pi * ROW + ROW / 2;
+      const x2 = dayDiff(s, t.data_inizio) * dw, y2 = HEAD + idx * ROW + ROW / 2;
+      const viol = dayDiff(pred.data_fine, t.data_inizio) <= 0;
+      const col = viol ? '#dc2626' : '#94a3b8';
+      const midx = Math.max(x1 + 8, x2 - 8);
+      line(x1, y1, midx, y1, col, viol ? 1.2 : 0.9, viol ? '3 2' : null);
+      line(midx, y1, midx, y2, col, viol ? 1.2 : 0.9, viol ? '3 2' : null);
+      line(midx, y2, x2, y2, col, viol ? 1.2 : 0.9, viol ? '3 2' : null);
+      poly([[x2 - 6, y2 - 3.5], [x2, y2], [x2 - 6, y2 + 3.5]], col);
+    });
+  });
+  // barre/etichette e checkpoint
+  tasks.forEach((t, idx) => {
+    if (t.tipo === 'milestone') {
+      const cx = dayDiff(s, t.data_inizio) * dw + dw / 2, cy = HEAD + idx * ROW + ROW / 2, r = 7;
+      poly([[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]], t.colore);
+      text(cx + r + 2, cy + 3.5, t.nome || '', 10, '#333333');
+      return;
+    }
+    const left = dayDiff(s, t.data_inizio) * dw;
+    const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+    const top = HEAD + idx * ROW + (ROW - BAR) / 2;
+    rect(left, top, width, BAR, t.colore);
+    const maxc = Math.floor((width * S - 6) / (6.2 * S));
+    if (maxc >= 2) {
+      let nome = t.nome || '';
+      if (nome.length > maxc) nome = nome.slice(0, Math.max(1, maxc - 1)) + '…';
+      text(left + 4, top + BAR / 2 + 3.5, nome, 10, testoPerSfondo(t.colore).color);
+    }
+  });
+  // linea oggi
+  const td = dayDiff(s, oggiIso());
+  if (td >= 0 && td < N) line(td * dw + dw / 2, 0, td * dw + dw / 2, H, '#dc2626', 1.2);
+
+  const content = 'q\n' + ops.join('\n') + '\nQ\n';
+  const enc = str => { const a = new Uint8Array(str.length); for (let j = 0; j < str.length; j++) a[j] = str.charCodeAt(j) & 0xff; return a; };
   const chunks = []; let len = 0; const off = [];
-  const add = u => { chunks.push(u); len += u.length; };
-  const obj = (n, body) => { off[n] = len; add(enc(n + ' 0 obj\n')); body.forEach(p => add(typeof p === 'string' ? enc(p) : p)); add(enc('\nendobj\n')); };
-  add(enc('%PDF-1.3\n'));
-  obj(1, ['<</Type/Catalog/Pages 2 0 R>>']);
-  obj(2, ['<</Type/Pages/Kids[3 0 R]/Count 1>>']);
-  obj(3, [`<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${W} ${H}]/Resources<</XObject<</Im0 4 0 R>>>>/Contents 5 0 R>>`]);
-  obj(4, [`<</Type/XObject/Subtype/Image/Width ${iw}/Height ${ih}/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length ${img.length}>>\nstream\n`, img, '\nendstream']);
-  const content = `q\n${W} 0 0 ${H} 0 0 cm\n/Im0 Do\nQ\n`;
-  obj(5, [`<</Length ${content.length}>>\nstream\n${content}endstream`]);
+  const add = str => { const u = enc(str); chunks.push(u); len += u.length; };
+  const obj = (n, body) => { off[n] = len; add(`${n} 0 obj\n${body}\nendobj\n`); };
+  add('%PDF-1.3\n');
+  obj(1, '<</Type/Catalog/Pages 2 0 R>>');
+  obj(2, '<</Type/Pages/Kids[3 0 R]/Count 1>>');
+  obj(3, `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${pageW} ${pageH}]/Resources<</Font<</F1 4 0 R/F2 6 0 R>>>>/Contents 5 0 R>>`);
+  obj(4, '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>');
+  obj(5, `<</Length ${content.length}>>\nstream\n${content}endstream`);
+  obj(6, '<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>');
   const xrefPos = len;
-  let xref = 'xref\n0 6\n0000000000 65535 f \n';
-  for (let n = 1; n <= 5; n++) xref += String(off[n]).padStart(10, '0') + ' 00000 n \n';
-  add(enc(xref));
-  add(enc(`trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n${xrefPos}\n%%EOF`));
+  let xref = 'xref\n0 7\n0000000000 65535 f \n';
+  for (let n = 1; n <= 6; n++) xref += String(off[n]).padStart(10, '0') + ' 00000 n \n';
+  add(xref);
+  add(`trailer\n<</Size 7/Root 1 0 R>>\nstartxref\n${xrefPos}\n%%EOF`);
   return new Blob(chunks, { type: 'application/pdf' });
 }
 
 async function exportGantt(formato) {
-  const svg = buildGanttSvg();
-  if (!svg) { alert('Nessuna attività da esportare.'); return; }
+  const data = new Date().toISOString().slice(0, 10);
   try {
-    const canvas = await svgToCanvas(svg.str, svg.w, svg.h, 2);
-    const data = new Date().toISOString().slice(0, 10);
-    if (formato === 'png') {
-      canvas.toBlob(b => downloadBlob(b, `gantt-${data}.png`), 'image/png');
-    } else {
-      const jpeg = canvas.toDataURL('image/jpeg', 0.92);
-      downloadBlob(jpegToPdf(jpeg, canvas.width, canvas.height), `gantt-${data}.pdf`);
+    if (formato === 'pdf') {
+      const pdf = buildGanttPdf();
+      if (!pdf) { alert('Nessuna attività da esportare.'); return; }
+      downloadBlob(pdf, `gantt-${data}.pdf`);
+      return;
     }
+    const svg = buildGanttSvg();
+    if (!svg) { alert('Nessuna attività da esportare.'); return; }
+    const canvas = await svgToCanvas(svg.str, svg.w, svg.h, 2);
+    canvas.toBlob(b => downloadBlob(b, `gantt-${data}.png`), 'image/png');
   } catch (err) {
     alert('Export non riuscito: ' + (err.message || err));
   }
@@ -1113,41 +1253,41 @@ function setGanttRange(preset) {
   renderLavori();
 }
 
-function bindGanttDrag(container) {
+function bindGanttDrag(container, dw) {
   let drag = null;
   container.addEventListener('pointerdown', e => {
-    const bar = e.target.closest('.gantt-bar');
-    if (!bar) return;
-    const grip = e.target.closest('[data-grip]');
-    const t = state.tasks.find(x => x.id === Number(bar.dataset.id));
+    const elBar = e.target.closest('.gantt-bar, .gantt-ms');
+    if (!elBar) return;
+    const ms = elBar.classList.contains('gantt-ms');
+    const grip = ms ? null : e.target.closest('[data-grip]');  // i checkpoint si spostano soltanto
+    const t = state.tasks.find(x => x.id === Number(elBar.dataset.id));
     drag = {
-      id: t.id, bar, role: grip ? grip.dataset.grip : 'move', startX: e.clientX, delta: 0,
+      id: t.id, el: elBar, role: grip ? grip.dataset.grip : 'move', startX: e.clientX, delta: 0,
       inizio: t.data_inizio, fine: t.data_fine,
-      left0: parseFloat(bar.style.left), width0: parseFloat(bar.style.width),
+      left0: parseFloat(elBar.style.left), width0: parseFloat(elBar.style.width),
     };
-    bar.setPointerCapture?.(e.pointerId);
-    bar.classList.add('dragging');
+    elBar.setPointerCapture?.(e.pointerId);
+    elBar.classList.add('dragging');
     e.preventDefault();
   });
   container.addEventListener('pointermove', e => {
     if (!drag) return;
-    const dw = state.ganttDayWidth;
     const delta = Math.round((e.clientX - drag.startX) / dw);
     drag.delta = delta;
     if (drag.role === 'move') {
-      drag.bar.style.left = (drag.left0 + delta * dw) + 'px';
+      drag.el.style.left = (drag.left0 + delta * dw) + 'px';
     } else if (drag.role === 'start') {
       const w = drag.width0 - delta * dw;
-      if (w >= dw) { drag.bar.style.left = (drag.left0 + delta * dw) + 'px'; drag.bar.style.width = w + 'px'; }
+      if (w >= dw) { drag.el.style.left = (drag.left0 + delta * dw) + 'px'; drag.el.style.width = w + 'px'; }
     } else {
       const w = drag.width0 + delta * dw;
-      if (w >= dw) drag.bar.style.width = w + 'px';
+      if (w >= dw) drag.el.style.width = w + 'px';
     }
   });
   const finish = async () => {
     if (!drag) return;
     const d = drag; drag = null;
-    d.bar.classList.remove('dragging');
+    d.el.classList.remove('dragging');
     if (!d.delta) { renderLavori(); return; }
     let body;
     if (d.role === 'move') {
@@ -1443,12 +1583,18 @@ function bindEvents() {
     await refresh({ global: true });
   });
 
+  // checkpoint: una sola data -> nascondi la data di fine
+  el('tk-tipo').addEventListener('change', () => {
+    el('tk-fine').style.display = el('tk-tipo').value === 'milestone' ? 'none' : '';
+  });
   el('form-task').addEventListener('submit', async e => {
     e.preventDefault();
-    const inizio = el('tk-inizio').value, fine = el('tk-fine').value;
+    const tipo = el('tk-tipo').value;
+    const inizio = el('tk-inizio').value;
+    const fine = tipo === 'milestone' ? inizio : el('tk-fine').value;
     if (fine < inizio) { alert('La data di fine precede quella di inizio'); return; }
     await api('POST', '/api/tasks', {
-      nome: el('tk-nome').value, data_inizio: inizio, data_fine: fine, colore: el('tk-colore').value,
+      nome: el('tk-nome').value, data_inizio: inizio, data_fine: fine, colore: el('tk-colore').value, tipo,
     });
     el('tk-nome').value = '';
     el('tk-nome').focus();
@@ -1491,7 +1637,12 @@ function bindEvents() {
   // riordino attività via trascinamento (delega sul tbody stabile)
   bindTaskDrag(el('tbl-tasks').querySelector('tbody'));
 
-  // export Gantt
+  // export Gantt + titolo PDF (persistito nel browser)
+  el('gantt-titolo').value = state.ganttTitolo;
+  el('gantt-titolo').addEventListener('input', () => {
+    state.ganttTitolo = el('gantt-titolo').value;
+    localStorage.setItem('ganttTitolo', state.ganttTitolo);
+  });
   el('gantt-png').addEventListener('click', () => exportGantt('png'));
   el('gantt-pdf').addEventListener('click', () => exportGantt('pdf'));
 

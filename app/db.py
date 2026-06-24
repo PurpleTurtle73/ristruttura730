@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     data_fine TEXT NOT NULL,         -- ISO yyyy-mm-dd (inclusiva)
     predecessori TEXT NOT NULL DEFAULT '',  -- id attività separati da virgola (finish-to-start)
     colore TEXT NOT NULL DEFAULT '#2563eb',
-    ordine INTEGER NOT NULL DEFAULT 0
+    ordine INTEGER NOT NULL DEFAULT 0,
+    tipo TEXT NOT NULL DEFAULT 'attivita'   -- 'attivita' | 'milestone' (checkpoint di un giorno)
 );
 """
 
@@ -110,6 +111,9 @@ def init_db() -> None:
             )
         if "bonus_override" not in cols:
             conn.execute("ALTER TABLE expenses ADD COLUMN bonus_override TEXT")
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)")]
+        if cols and "tipo" not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN tipo TEXT NOT NULL DEFAULT 'attivita'")
         if conn.execute("SELECT COUNT(*) FROM eco_categories").fetchone()[0] == 0:
             conn.executemany(
                 "INSERT INTO eco_categories (nome, massimale_detrazione) VALUES (?, ?)",
@@ -199,7 +203,7 @@ def load_year_inputs(conn: sqlite3.Connection, anno: int) -> dict:
 
 # ---------- attività / cronoprogramma (Gantt) ----------
 
-TASK_FIELDS = ("nome", "data_inizio", "data_fine", "predecessori", "colore", "ordine")
+TASK_FIELDS = ("nome", "data_inizio", "data_fine", "predecessori", "colore", "ordine", "tipo")
 
 
 def list_tasks(conn: sqlite3.Connection) -> list[dict]:
@@ -210,16 +214,21 @@ def create_task(conn: sqlite3.Connection, data: dict) -> int:
     ordine = data.get("ordine")
     if ordine is None:
         ordine = (conn.execute("SELECT COALESCE(MAX(ordine), 0) + 1 FROM tasks").fetchone()[0])
+    tipo = data.get("tipo", "attivita")
+    inizio = data["data_inizio"]
+    # un checkpoint è di un solo giorno: la fine coincide con l'inizio
+    fine = inizio if tipo == "milestone" else data["data_fine"]
     cur = conn.execute(
-        "INSERT INTO tasks (nome, data_inizio, data_fine, predecessori, colore, ordine) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tasks (nome, data_inizio, data_fine, predecessori, colore, ordine, tipo) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             data.get("nome", ""),
-            data["data_inizio"],
-            data["data_fine"],
+            inizio,
+            fine,
             _clean_predecessori(data.get("predecessori", "")),
             data.get("colore", "#2563eb"),
             ordine,
+            tipo,
         ),
     )
     return cur.lastrowid

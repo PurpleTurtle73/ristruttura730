@@ -154,10 +154,14 @@
       <article class="form-card">
         <h4>Nuova attività</h4>
         <form id="form-task" class="inline-form">
-          <input type="text" id="tk-nome" placeholder="Attività (es. demolizioni)" required>
-          <input type="date" id="tk-inizio" required title="Data inizio">
+          <select id="tk-tipo" title="Tipo">
+            <option value="attivita">Attività</option>
+            <option value="milestone">Checkpoint</option>
+          </select>
+          <input type="text" id="tk-nome" placeholder="Nome" required>
+          <input type="date" id="tk-inizio" required title="Data inizio (o giorno del checkpoint)">
           <input type="date" id="tk-fine" required title="Data fine (inclusiva)">
-          <input type="color" id="tk-colore" value="#2563eb" title="Colore della barra">
+          <input type="color" id="tk-colore" value="#2563eb" title="Colore">
           <button type="submit">Aggiungi</button>
           <button type="button" id="tk-bulk-open" class="secondary outline">➕ Aggiunta multipla</button>
           <button type="button" id="tk-csv-open" class="secondary outline">⬆ Importa CSV</button>
@@ -220,6 +224,9 @@ Impianti,2026-03-11,2026-03-25,#2563eb</pre>
                 <button id="gantt-zoom-out" class="icon-btn" title="Riduci">−</button>
                 <button id="gantt-zoom-in" class="icon-btn" title="Ingrandisci">+</button>
               </div>
+              <label class="gantt-titolo" title="Intestazione stampata in cima al PDF">
+                Piano lavori <input type="text" id="gantt-titolo" placeholder="…">
+              </label>
               <div class="gantt-export">
                 <button id="gantt-png" class="secondary outline">⬇ PNG</button>
                 <button id="gantt-pdf" class="secondary outline">⬇ PDF</button>
