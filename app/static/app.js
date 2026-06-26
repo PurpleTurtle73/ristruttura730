@@ -879,21 +879,28 @@ function renderGantt(tasks) {
     if (we) weekendCols += `<div class="gantt-we-col" style="left:${k * dw}px;width:${dw}px"></div>`;
   }
 
-  // righe + barre (e linee verticali dei checkpoint, a tutta altezza)
+  // lane checkpoint in cima (una sola riga condivisa) + attività sotto
+  const milestones = tasks.filter(t => t.tipo === 'milestone');
+  const activities = tasks.filter(t => t.tipo !== 'milestone');
+  const laneBase = milestones.length ? 1 : 0;
+  const totalRows = activities.length + laneBase;
+
   let rowsHtml = '', msLines = '';
-  tasks.forEach((t, idx) => {
-    if (t.tipo === 'milestone') {
+  if (laneBase) {
+    let lane = '';
+    const cy = (ROW - 16) / 2;
+    milestones.forEach(t => {
       const cx = dayDiff(rangeStart, t.data_inizio) * dw + dw / 2;
-      const cy = (ROW - 16) / 2;
       msLines += `<div class="gantt-ms-line" style="left:${cx}px;border-color:${t.colore}"></div>`;
-      rowsHtml += `<div class="gantt-row${idx % 2 ? ' alt' : ''}" style="height:${ROW}px">
-        <div class="gantt-ms" data-id="${t.id}" title="${esc(t.nome)} — checkpoint ${fmtData(t.data_inizio)}" style="left:${cx}px;top:${cy}px">
-          <span class="ms-diamond" style="background:${t.colore}"></span>
-          <span class="ms-name">${esc(t.nome)}</span>
-        </div>
+      lane += `<div class="gantt-ms" data-id="${t.id}" title="${esc(t.nome)} — checkpoint ${fmtData(t.data_inizio)}" style="left:${cx}px;top:${cy}px">
+        <span class="ms-diamond" style="background:${t.colore}"></span>
+        <span class="ms-name">${esc(t.nome)}</span>
       </div>`;
-      return;
-    }
+    });
+    rowsHtml += `<div class="gantt-row gantt-lane" style="height:${ROW}px">${lane}</div>`;
+  }
+  activities.forEach((t, ai) => {
+    const idx = laneBase + ai;
     const left = dayDiff(rangeStart, t.data_inizio) * dw;
     const width = (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
     const txt = testoPerSfondo(t.colore);
@@ -907,24 +914,32 @@ function renderGantt(tasks) {
     </div>`;
   });
 
-  // frecce dipendenze (finish-to-start)
-  const rowOf = id => tasks.findIndex(t => t.id === id);
+  // frecce dipendenze (finish-to-start) — i checkpoint stanno tutti sulla lane 0
+  const rowIndexOf = id => {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return -1;
+    if (t.tipo === 'milestone') return 0;
+    return laneBase + activities.findIndex(x => x.id === id);
+  };
   let paths = '';
-  tasks.forEach((t, idx) => {
+  tasks.forEach(t => {
+    const ti = rowIndexOf(t.id);
     parsePreds(t.predecessori).forEach(pid => {
-      const pi = rowOf(pid);
+      const pi = rowIndexOf(pid);
       if (pi < 0) return;
-      const pred = tasks[pi];
+      const pred = tasks.find(x => x.id === pid);
       const x1 = (dayDiff(rangeStart, pred.data_fine) + 1) * dw;
       const y1 = pi * ROW + ROW / 2;
-      const x2 = dayDiff(rangeStart, t.data_inizio) * dw;
-      const y2 = idx * ROW + ROW / 2;
+      const x2 = t.tipo === 'milestone'
+        ? dayDiff(rangeStart, t.data_inizio) * dw + dw / 2
+        : dayDiff(rangeStart, t.data_inizio) * dw;
+      const y2 = ti * ROW + ROW / 2;
       const violato = dayDiff(pred.data_fine, t.data_inizio) <= 0;
       const midx = Math.max(x1 + 8, x2 - 8);
       paths += `<path d="M${x1},${y1} H${midx} V${y2} H${x2}" class="dep${violato ? ' violato' : ''}" marker-end="url(#gantt-arrow)"/>`;
     });
   });
-  const svg = `<svg class="gantt-deps" width="${chartWidth}" height="${tasks.length * ROW}">
+  const svg = `<svg class="gantt-deps" width="${chartWidth}" height="${totalRows * ROW}">
     <defs><marker id="gantt-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3.5" orient="auto">
       <path d="M0,0 L7,3.5 L0,7 z" class="dep-arrow"/></marker></defs>${paths}</svg>`;
 
@@ -938,7 +953,7 @@ function renderGantt(tasks) {
       <div class="gantt-months">${monthCells}</div>
       <div class="gantt-days">${dayCells}</div>
     </div>
-    <div class="gantt-rows" style="height:${tasks.length * ROW}px;background-size:${dw}px 100%">
+    <div class="gantt-rows" style="height:${totalRows * ROW}px;background-size:${dw}px 100%">
       ${weekendCols}${svg}${msLines}${rowsHtml}${todayLine}
       <div class="gantt-hover" hidden><span class="gantt-hover-lbl"></span></div>
     </div>
@@ -977,6 +992,150 @@ function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/* --- export immagine PNG (rispecchia la vista a schermo, tema incluso) --- */
+const xmlEsc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// palette coerente col tema attivo (come la vista web)
+function ganttPalette(forceLight) {
+  const dark = !forceLight && document.documentElement.dataset.theme === 'dark';
+  return dark
+    ? { bg: '#0f141b', head: '#161b22', headLine: '#262d37', weekend: 'rgba(248,113,113,.10)', grid: '#20262f', alt: 'rgba(96,165,250,.06)', month: '#9aa4b2', day: '#6b7585', dep: '#64748b', depViol: '#f87171', today: '#f87171', title: '#e6e9ee', outside: '#cdd3da', diaStroke: '#0f141b' }
+    : { bg: '#ffffff', head: '#f1f4f9', headLine: '#dfe3e9', weekend: 'rgba(220,38,38,.07)', grid: '#e6e9ee', alt: 'rgba(37,99,235,.045)', month: '#555555', day: '#999999', dep: '#94a3b8', depViol: '#dc2626', today: '#dc2626', title: '#222222', outside: '#333333', diaStroke: '#ffffff' };
+}
+
+// SVG autonomo che rispecchia il Gantt a schermo (intero piano)
+function buildGanttSvg() {
+  const tasks = state.tasks;
+  if (!tasks.length) return null;
+  const dw = Math.max(20, state.ganttDayWidth);
+  const ROW = 34, BAR = 22, HEAD = 34;
+  const P = ganttPalette(true);   // export immagine sempre tema chiaro
+  let s = tasks[0].data_inizio, e = tasks[0].data_fine;
+  for (const t of tasks) { if (t.data_inizio < s) s = t.data_inizio; if (t.data_fine > e) e = t.data_fine; }
+  s = addDays(s, -2); e = addDays(e, 2);
+  // lane checkpoint in cima (una riga condivisa) + attività sotto
+  const milestones = tasks.filter(t => t.tipo === 'milestone');
+  const activities = tasks.filter(t => t.tipo !== 'milestone');
+  const laneBase = milestones.length ? 1 : 0;
+  const totalRows = activities.length + laneBase;
+  const rowIndexOf = id => {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return -1;
+    if (t.tipo === 'milestone') return 0;
+    return laneBase + activities.findIndex(x => x.id === id);
+  };
+  const N = dayDiff(s, e) + 1, dayW = N * dw, H = HEAD + totalRows * ROW;
+  const CW = 6.4;
+
+  const titolo = ('Piano lavori ' + (state.ganttTitolo || '')).trim();
+  const hasTitle = !!(state.ganttTitolo || '').trim();
+  const titleBand = hasTitle ? 30 : 0;
+
+  const dur = t => (dayDiff(t.data_inizio, t.data_fine) + 1) * dw;
+  let needW = dayW;
+  tasks.forEach(t => {
+    const left = dayDiff(s, t.data_inizio) * dw;
+    if (t.tipo === 'milestone') needW = Math.max(needW, left + dw / 2 + 10 + (t.nome || '').length * CW + 6);
+    else needW = Math.max(needW, left + 5 + (t.nome || '').length * CW + 6);
+  });
+  const W = Math.max(dayW, needW);
+
+  const parts = [];
+  parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="${P.bg}"/>`);
+  // colonne weekend (rosse, come a schermo)
+  for (let k = 0; k < N; k++) {
+    const g = isoToDate(addDays(s, k)).getUTCDay();
+    if (g === 0 || g === 6) parts.push(`<rect x="${k * dw}" y="${HEAD}" width="${dw}" height="${H - HEAD}" fill="${P.weekend}"/>`);
+  }
+  for (let idx = 0; idx < totalRows; idx++) { if (idx % 2) parts.push(`<rect x="0" y="${HEAD + idx * ROW}" width="${W}" height="${ROW}" fill="${P.alt}"/>`); }
+  parts.push(`<rect x="0" y="0" width="${W}" height="${HEAD}" fill="${P.head}"/>`);
+  parts.push(`<line x1="0" y1="${HEAD}" x2="${W}" y2="${HEAD}" stroke="${P.headLine}" stroke-width="1"/>`);
+  let i = 0;
+  while (i < N) {
+    const d = isoToDate(addDays(s, i)), m = d.getUTCMonth(), y = d.getUTCFullYear();
+    let span = 0;
+    while (i + span < N) { const dd = isoToDate(addDays(s, i + span)); if (dd.getUTCMonth() !== m || dd.getUTCFullYear() !== y) break; span++; }
+    parts.push(`<text x="${i * dw + 4}" y="13" font-size="11" font-weight="700" fill="${P.month}">${MESI_BREVI[m]} ${y}</text>`);
+    i += span;
+  }
+  if (dw >= 16) for (let k = 0; k < N; k++) {
+    parts.push(`<text x="${k * dw + dw / 2}" y="29" font-size="9" fill="${P.day}" text-anchor="middle">${isoToDate(addDays(s, k)).getUTCDate()}</text>`);
+  }
+  tasks.forEach(t => {
+    const ti = rowIndexOf(t.id);
+    parsePreds(t.predecessori).forEach(pid => {
+      const pi = rowIndexOf(pid); if (pi < 0) return;
+      const pred = tasks.find(x => x.id === pid);
+      const x1 = (dayDiff(s, pred.data_fine) + 1) * dw, y1 = HEAD + pi * ROW + ROW / 2;
+      const x2 = t.tipo === 'milestone' ? dayDiff(s, t.data_inizio) * dw + dw / 2 : dayDiff(s, t.data_inizio) * dw;
+      const y2 = HEAD + ti * ROW + ROW / 2;
+      const viol = dayDiff(pred.data_fine, t.data_inizio) <= 0;
+      const midx = Math.max(x1 + 8, x2 - 8);
+      const col = viol ? P.depViol : P.dep;
+      const dash = viol ? ' stroke-dasharray="4 3"' : '';
+      parts.push(`<path d="M${x1},${y1} H${midx} V${y2} H${x2}" fill="none" stroke="${col}" stroke-width="${viol ? 2 : 1.5}"${dash}/>`);
+      parts.push(`<path d="M${x2 - 6},${y2 - 3.5} L${x2},${y2} L${x2 - 6},${y2 + 3.5} z" fill="${col}"/>`);
+    });
+  });
+  // attività
+  activities.forEach((t, ai) => {
+    const idx = laneBase + ai;
+    const left = dayDiff(s, t.data_inizio) * dw, width = dur(t), top = HEAD + idx * ROW + (ROW - BAR) / 2;
+    const nome = t.nome || '';
+    parts.push(`<rect x="${left}" y="${top}" width="${width}" height="${BAR}" rx="5" fill="${t.colore}"/>`);
+    if (nome) {
+      const dentro = nome.length * CW + 10 <= width;
+      parts.push(`<text x="${left + 5}" y="${top + BAR / 2 + 4}" font-size="11" font-weight="600" fill="${dentro ? testoPerSfondo(t.colore).color : P.outside}">${xmlEsc(nome)}</text>`);
+    }
+  });
+  // checkpoint sulla lane 0 (linea tratteggiata a tutta altezza, diamante + nome)
+  milestones.forEach(t => {
+    const cx = dayDiff(s, t.data_inizio) * dw + dw / 2, cy = HEAD + ROW / 2, r = 7;
+    parts.push(`<line x1="${cx}" y1="${HEAD}" x2="${cx}" y2="${H}" stroke="${t.colore}" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>`);
+    parts.push(`<path d="M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} z" fill="${t.colore}" stroke="${P.diaStroke}" stroke-width="1"/>`);
+    parts.push(`<text x="${cx + r + 3}" y="${cy + 4}" font-size="11" font-weight="600" fill="${P.outside}">${xmlEsc(t.nome || '')}</text>`);
+  });
+  const td = dayDiff(s, oggiIso());
+  if (td >= 0 && td < N) parts.push(`<line x1="${td * dw + dw / 2}" y1="0" x2="${td * dw + dw / 2}" y2="${H}" stroke="${P.today}" stroke-width="2" opacity="0.6"/>`);
+
+  const totalH = H + titleBand;
+  const titleSvg = hasTitle ? `<text x="6" y="20" font-size="16" font-weight="700" fill="${P.title}">${xmlEsc(titolo)}</text>` : '';
+  const str = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${totalH}" viewBox="0 0 ${W} ${totalH}" font-family="system-ui,Segoe UI,Roboto,sans-serif">` +
+    `<rect x="0" y="0" width="${W}" height="${totalH}" fill="${P.bg}"/>${titleSvg}<g transform="translate(0,${titleBand})">${parts.join('')}</g></svg>`;
+  return { str, w: W, h: totalH };
+}
+
+function svgToCanvas(svgStr, w, h, scale) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' }));
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+      const ctx = c.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      resolve(c);
+    };
+    img.onerror = err => { URL.revokeObjectURL(url); reject(err); };
+    img.src = url;
+  });
+}
+
+async function exportGanttImg() {
+  const svg = buildGanttSvg();
+  if (!svg) { alert('Nessuna attività da esportare.'); return; }
+  try {
+    // alta risoluzione: 4× (limitata per non sforare i limiti del canvas)
+    const scale = Math.max(1, Math.min(4, Math.floor(16000 / Math.max(svg.w, svg.h)) || 1));
+    const canvas = await svgToCanvas(svg.str, svg.w, svg.h, scale);
+    canvas.toBlob(b => downloadBlob(b, `gantt-${new Date().toISOString().slice(0, 10)}.png`), 'image/png');
+  } catch (err) {
+    alert('Export non riuscito: ' + (err.message || err));
+  }
+}
+
 // PDF VETTORIALE A4 orizzontale: il Gantt è disegnato con primitive (no immagine)
 function pdfCol(hex) {
   let h = (hex || '').replace('#', '');
@@ -1006,7 +1165,18 @@ function buildGanttPdf() {
   let s = tasks[0].data_inizio, e = tasks[0].data_fine;
   for (const t of tasks) { if (t.data_inizio < s) s = t.data_inizio; if (t.data_fine > e) e = t.data_fine; }
   s = addDays(s, -2); e = addDays(e, 2);
-  const N = dayDiff(s, e) + 1, dayW = N * dw, H = HEAD + tasks.length * ROW;
+  // lane checkpoint in cima (una riga condivisa) + attività sotto
+  const milestones = tasks.filter(t => t.tipo === 'milestone');
+  const activities = tasks.filter(t => t.tipo !== 'milestone');
+  const laneBase = milestones.length ? 1 : 0;
+  const totalRows = activities.length + laneBase;
+  const rowIndexOf = id => {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return -1;
+    if (t.tipo === 'milestone') return 0;
+    return laneBase + activities.findIndex(x => x.id === id);
+  };
+  const N = dayDiff(s, e) + 1, dayW = N * dw, H = HEAD + totalRows * ROW;
   const CW = 6.2; // larghezza media carattere a 10px
   // PDF sempre in tema chiaro, indipendente dal tema della pagina
   const P = { bg: '#ffffff', head: '#f1f4f9', headLine: '#dfe3e9', weekend: '#fdeaea', grid: '#e6e9ee', alt: '#f2f5fd', month: '#555555', day: '#999999', dep: '#94a3b8', depViol: '#dc2626', today: '#dc2626', title: '#222222', outside: '#333333' };
@@ -1051,9 +1221,9 @@ function buildGanttPdf() {
   // gridlines giorni
   for (let k = 0; k <= N; k++) line(k * dw, HEAD, k * dw, H, P.grid, 0.5);
   // righe alternate
-  tasks.forEach((t, idx) => { if (idx % 2) rect(0, HEAD + idx * ROW, W, ROW, P.alt); });
+  for (let idx = 0; idx < totalRows; idx++) { if (idx % 2) rect(0, HEAD + idx * ROW, W, ROW, P.alt); }
   // linee verticali dei checkpoint (sotto l'header)
-  tasks.forEach(t => { if (t.tipo === 'milestone') { const cx = dayDiff(s, t.data_inizio) * dw + dw / 2; line(cx, HEAD, cx, H, t.colore, 0.6, '3 3'); } });
+  milestones.forEach(t => { const cx = dayDiff(s, t.data_inizio) * dw + dw / 2; line(cx, HEAD, cx, H, t.colore, 0.6, '3 3'); });
   // header
   rect(0, 0, W, HEAD, P.head);
   line(0, HEAD, W, HEAD, P.headLine, 0.6);
@@ -1066,14 +1236,15 @@ function buildGanttPdf() {
     i += span;
   }
   if (dw * S >= 12) for (let k = 0; k < N; k++) text(k * dw + dw / 2 - 3, 28, String(isoToDate(addDays(s, k)).getUTCDate()), 8, P.day);
-  // dipendenze
-  const rowOf = id => tasks.findIndex(t => t.id === id);
-  tasks.forEach((t, idx) => {
+  // dipendenze (i checkpoint stanno tutti sulla lane 0)
+  tasks.forEach(t => {
+    const ti = rowIndexOf(t.id);
     parsePreds(t.predecessori).forEach(pid => {
-      const pi = rowOf(pid); if (pi < 0) return;
-      const pred = tasks[pi];
+      const pi = rowIndexOf(pid); if (pi < 0) return;
+      const pred = tasks.find(x => x.id === pid);
       const x1 = (dayDiff(s, pred.data_fine) + 1) * dw, y1 = HEAD + pi * ROW + ROW / 2;
-      const x2 = dayDiff(s, t.data_inizio) * dw, y2 = HEAD + idx * ROW + ROW / 2;
+      const x2 = t.tipo === 'milestone' ? dayDiff(s, t.data_inizio) * dw + dw / 2 : dayDiff(s, t.data_inizio) * dw;
+      const y2 = HEAD + ti * ROW + ROW / 2;
       const viol = dayDiff(pred.data_fine, t.data_inizio) <= 0;
       const col = viol ? P.depViol : P.dep;
       const midx = Math.max(x1 + 8, x2 - 8);
@@ -1083,14 +1254,9 @@ function buildGanttPdf() {
       poly([[x2 - 6, y2 - 3.5], [x2, y2], [x2 - 6, y2 + 3.5]], col);
     });
   });
-  // barre/etichette e checkpoint
-  tasks.forEach((t, idx) => {
-    if (t.tipo === 'milestone') {
-      const cx = dayDiff(s, t.data_inizio) * dw + dw / 2, cy = HEAD + idx * ROW + ROW / 2, r = 7;
-      poly([[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]], t.colore);
-      text(cx + r + 2, cy + 3.5, t.nome || '', 10, P.outside);
-      return;
-    }
+  // barre/etichette attività
+  activities.forEach((t, ai) => {
+    const idx = laneBase + ai;
     const left = dayDiff(s, t.data_inizio) * dw;
     const width = dur(t);
     const top = HEAD + idx * ROW + (ROW - BAR) / 2;
@@ -1100,6 +1266,12 @@ function buildGanttPdf() {
       const dentro = nome.length * CW + 8 <= width;
       text(left + 4, top + BAR / 2 + 3.5, nome, 10, dentro ? testoPerSfondo(t.colore).color : P.outside);
     }
+  });
+  // checkpoint sulla lane 0
+  milestones.forEach(t => {
+    const cx = dayDiff(s, t.data_inizio) * dw + dw / 2, cy = HEAD + ROW / 2, r = 7;
+    poly([[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]], t.colore);
+    text(cx + r + 2, cy + 3.5, t.nome || '', 10, P.outside);
   });
   // linea oggi
   const td = dayDiff(s, oggiIso());
@@ -1537,6 +1709,7 @@ function bindEvents() {
     state.ganttTitolo = el('gantt-titolo').value;
     localStorage.setItem('ganttTitolo', state.ganttTitolo);
   });
+  el('gantt-img').addEventListener('click', exportGanttImg);
   el('gantt-pdf').addEventListener('click', () => {
     const pdf = buildGanttPdf();
     if (!pdf) { alert('Nessuna attività da esportare.'); return; }
